@@ -1,0 +1,7 @@
+*.pkl
+data/
+*.png
+*.pyc
+*.swo
+*.swp
+sentiment/
