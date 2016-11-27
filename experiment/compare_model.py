@@ -31,13 +31,12 @@ testset = pickle.load(open(tsfile, 'rb'))
 print('Overall %d reviews' % len(testset))
 
 # load model
-config = dict(use_sideinfo=True, K=128, max_iter=200000, 
-              half_window=1, voc_size=len(dictionary), reg_weight=1.0, num_neg=12)
+config = dict(use_sideinfo=True, K=128, max_iter=300000, half_window=1, reg_weight=1.0, num_neg=50)
 
 mfile = config_to_name(config) + '.pkl'
-emb_model = pickle.load(open(data_path + 'splits/' + mfile, "rb"))
-
-avg_loss = evaluate_emb(testset, emb_model, config)
+train = pickle.load(open(data_path + 'splits/' + mfile, "rb"))
+emb_model = train['model']
+avg_loss = evaluate_emb(testset, emb_model, config, voc_dict)
 
 print('configuration is ', config)
 print('loss is ', avg_loss)

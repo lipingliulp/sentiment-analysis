@@ -38,7 +38,7 @@ reverse_dictionary = voc_dict['rev_dic']
 print('Sample data', trainset[0]['text'][:10], [reverse_dictionary[i] for i in trainset[0]['text'][:10]])
 
 # Step 2: set parameters of the model
-config = dict(use_sideinfo=True, K=128, max_iter=300000, half_window=1, reg_weight=1.0, num_neg=10)
+config = dict(use_sideinfo=True, K=128, max_iter=100000, half_window=1, reg_weight=1.0, num_neg=100)
 
 print(config_to_name(config))
 
@@ -55,15 +55,18 @@ for i in range(8):
 # Step 4: Fit a emb model
 dummy_config = config.copy()
 dummy_config['use_sideinfo'] = False
+dummy_config['max_iter'] = 200000 
 mfile = config_to_name(dummy_config) + '.pkl'
-#init_model = pickle.load(open(data_path + 'splits/' + mfile, "rb"))
+train_noside = pickle.load(open(data_path + 'splits/' + mfile, "rb"))
+init_model = train_noside['model']
+#init_model = None
 
-emb_model, logg = fit_emb(trainset, config, voc_dict, None)
+emb_model, logg = fit_emb(trainset, config, voc_dict, init_model)
 
 # Step 5: Save result and Visualize the embeddings.
 
 mfile = config_to_name(config) + '.pkl'
-pickle.dump(dict(model=emb_model, logg=logg), open(data_path + 'splits/' + mfile, "wb"))
+pickle.dump(dict(model=emb_model, logg=logg), open(data_path + 'splits/continue_training' + mfile, "wb"))
 
 # plot curve
 

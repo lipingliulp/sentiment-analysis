@@ -81,6 +81,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
         loss_logg = []
         average_loss = 0
+        loss_count = 0 
         for step in xrange(config['max_iter']):
             review = reviews[step % len(reviews)]
             batch_sidevec, batch_inputs, batch_labels = generate_batch(review, config)
@@ -91,14 +92,16 @@ def fit_emb(reviews, config, voc_dict, init_model):
                 
             _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
             average_loss += loss_val
+            loss_count = loss_count + 1
 
             if step % 2000 == 0:
                 if step > 0:
-                  average_loss /= 2000
+                  average_loss /= loss_count
                 # The average loss is an estimate of the loss over the last 2000 batches.
                 print("Average loss at step ", step, ": ", average_loss)
                 loss_logg.append((step, average_loss))
                 average_loss = 0
+                loss_count = 0
     
             # Note that this is expensive (~20% slowdown if computed every 500 steps)
             if step % 20000 == 0:
@@ -115,7 +118,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
    
          
         # logging the last result
-        loss_logg.append((step, average_loss))
+        loss_logg.append((step, average_loss / loss_count))
         model = dict(alpha=alpha.eval(), rho=rho.eval(), b=bias.eval())
 
         return model, loss_logg
