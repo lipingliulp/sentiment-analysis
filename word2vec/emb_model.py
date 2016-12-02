@@ -64,8 +64,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
             
 
         #objective, loss = construct_graph(alpha, rho, bias, train_sidevec, train_inputs, train_labels, config, log_wcount)
-        mu = tf.sigmoid(invmu)
-        objective, loss = construct_exposure_graph(alpha, rho, mu, train_inputs, train_labels, config, log_wcount)
+        objective, loss, temp = construct_exposure_graph(alpha, rho, invmu, train_inputs, train_labels, config, log_wcount)
         # Construct the SGD optimizer using a learning rate of 1.0.
         optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(objective)
 
@@ -97,16 +96,18 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
             # We perform one update step by evaluating the optimizer op (including it
             # in the list of returned values for session.run()
-                
             _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
             average_loss += loss_val
             loss_count = loss_count + 1
 
+            # print loss every 2000 iterations
             if step % 2000 == 0:
                 if step > 0:
                   average_loss /= loss_count
                 # The average loss is an estimate of the loss over the last 2000 batches.
-                print("Average loss at step ", step, ": ", average_loss)
+                tempval = session.run(temp, feed_dict=feed_dict)
+
+                print("Average loss at step ", step, ": ", average_loss, " mean of mu:", tempval)
                 loss_logg.append((step, average_loss))
                 average_loss = 0
                 loss_count = 0
@@ -157,11 +158,10 @@ def evaluate_emb(reviews, model, config, voc_dict):
         alpha = tf.constant(model['alpha'])
         rho = tf.constant(model['rho'])
         bias = tf.constant(model['b'])
-        invmu = tf.constant(model['b'])
-        mu = tf.sigmoid(invmu)
+        invmu = tf.constant(model['invmu'])
 
         #objective, loss = construct_graph(alpha, rho, bias, train_sidevec, train_inputs, train_labels, config, log_wcount)
-        objective, loss = construct_exposure_graph(alpha, rho, mu, train_inputs, train_labels, config, log_wcount)
+        objective, loss = construct_exposure_graph(alpha, rho, invmu, train_inputs, train_labels, config, log_wcount)
 
         # Add variable initializer.
         init = tf.initialize_all_variables()
@@ -180,6 +180,7 @@ def evaluate_emb(reviews, model, config, voc_dict):
     
             loss_val = session.run(loss, feed_dict=feed_dict)
             loss_sum += loss_val * len(batch_labels)
+
             num_pairs += len(batch_labels)
 
             if step % 2000 == 0:
@@ -231,11 +232,11 @@ def construct_graph(alpha, rho, bias, train_sidevec, train_inputs, train_labels,
 
     return objective, loss
 
-
-def construct_exposure_graph(alpha, rho, mu, train_inputs, train_labels, config, log_wcount):
+def construct_exposure_graph(alpha, rho, invmu, train_inputs, train_labels, config, log_wcount):
 
     nneg = 200
     voc_size = len(log_wcount)
+    neg_pos_ratio = 10 
 
     # prepare embedding of context 
     alpha_select = tf.gather(alpha, train_inputs, name='context_alpha')
@@ -244,34 +245,29 @@ def construct_exposure_graph(alpha, rho, mu, train_inputs, train_labels, config,
     #positives: construct the variables
     pos_rho = tf.gather(rho, train_labels, name='label_rho')
     pos_logits = tf.reduce_sum(tf.mul(embed, pos_rho), 1)
+    pos_invmu = tf.gather(invmu, train_labels)
 
     # elbo of positive samples. Note that q_ij = 1 
     pos_obj_pi = - tf.nn.softplus(- pos_logits)
-    pos_obj_mu = tf.log(mu)
-    pos_obj = (1.0 / voc_size) * (tf.reduce_mean(pos_obj_pi) + tf.reduce_mean(pos_obj_mu))
+    pos_obj_mu = - tf.nn.softplus(- pos_invmu)
+    pos_obj = tf.reduce_mean(pos_obj_pi) + tf.reduce_mean(pos_obj_mu)
 
     # negative samples. # how to sample without replacement? 
     batch_size = tf.shape(train_inputs)[0]
-    word_udist = tf.contrib.distributions.Categorical(logits=np.ones(voc_size - 1))
-    neg_words = tf.stop_gradient(word_udist.sample((nneg, batch_size)))
-    
-    flag = tf.greater_equal(neg_words, train_labels)
-    neg_words = neg_words + tf.cast(flag, tf.int32)
-    print(neg_words.get_shape())
+    neg_words = negative_sample(train_labels, nneg, log_wcount)
+    neg_words = tf.transpose(neg_words)
+
     neg_rho = tf.gather(rho, neg_words)
     neg_logits = tf.reduce_sum(tf.mul(neg_rho, embed), 2)
-
-    # calculate posterior probabilities    
-    neg_mu = tf.gather(mu, neg_words)
     neg_pi = tf.nn.sigmoid(neg_logits)
+
+    # calculate posterior probabilities
+    neg_invmu = tf.gather(invmu, neg_words)
+    neg_mu = tf.sigmoid(neg_invmu)
     mupi = tf.mul(neg_mu, neg_pi)
-    qprob = tf.div(tf.sub(neg_mu, mupi),  tf.sub(1.0, mupi))
-    tf.stop_gradient(qprob)
 
     # calculate elbo for negative samples
-    neg_obj_pi = qprob * (- tf.nn.softplus(neg_logits))
-    neg_obj_mu = (1 - qprob) * tf.log(1 - neg_mu) + qprob * tf.log(neg_mu)
-    neg_obj = (voc_size - 1.0) / voc_size * (tf.reduce_mean(neg_obj_pi) + tf.reduce_mean(neg_obj_mu))
+    neg_obj = tf.reduce_mean(tf.log(1 - mupi))
 
     # calculate regularizer
     word_udist = tf.contrib.distributions.Categorical(logits=np.ones(len(log_wcount)))
@@ -279,11 +275,10 @@ def construct_exposure_graph(alpha, rho, mu, train_inputs, train_labels, config,
     regularizer = tf.reduce_mean(tf.square(tf.gather(alpha, iword))) + tf.reduce_mean(tf.square(tf.gather(rho, iword)))
 
     # calculate the final objective
-    loss = - pos_obj - neg_obj
+    loss = - pos_obj - neg_pos_ratio * neg_obj
     objective = regularizer * config['reg_weight'] + loss
 
-    return objective, loss
-
+    return objective, loss, tf.reduce_mean(tf.sigmoid(invmu)) 
 
 
 def generate_batch(review, config):
@@ -312,7 +307,33 @@ def generate_batch(review, config):
     context = text[context_ind] 
 
     return sideinfo, context, labels
-    
 
+# draw negative samples from the multinomial distribution
+# labels: a tensor
+# nneg: number of negative samples, integer
+# logits: numpy vector, log p + const 
+
+# return negative samples 
+def negative_sample(labels, nneg, logits, session=None):
+    
+    extra = 30
+   
+    wdist = tf.contrib.distributions.Categorical(logits=logits)
+    batch_size = tf.shape(labels)[0]
+    ws = wdist.sample([batch_size, nneg + extra])
+
+
+    neq = tf.not_equal(ws, tf.expand_dims(labels, 1))
+    neq = tf.cast(neq, tf.int32)
+    ind = tf.cumsum(neq, axis=1) + (1 - neq) * (nneg + extra)
+
+    mask = tf.less_equal(ind, nneg) 
+    mask = tf.reshape(mask, [batch_size, nneg + extra])
+
+    negs = tf.boolean_mask(ws, mask)
+    
+    samples = tf.reshape(negs, (batch_size, nneg)) 
+
+    return samples
 
 
