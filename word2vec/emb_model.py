@@ -41,12 +41,12 @@ def fit_emb(reviews, config, voc_dict, init_model):
         # Ops and variables pinned to the CPU because of missing GPU implementation
         if init_model == None:
             alpha = tf.Variable(
-                tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
+                tf.random_uniform([vocabulary_size, embedding_size], -0.1, 0.1))
             rho = tf.Variable(
                 tf.truncated_normal([vocabulary_size, embedding_size + int(train_sidevec.get_shape()[1])],
-                                stddev=1.0))
+                                stddev=0.1))
 
-            invmu = tf.Variable(tf.zeros(vocabulary_size))
+            invmu = tf.constant(np.ones(vocabulary_size) * np.log(10000), dtype=tf.float32)
             bias = tf.Variable(tf.zeros([vocabulary_size]))
 
         else:
@@ -96,9 +96,13 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
             # We perform one update step by evaluating the optimizer op (including it
             # in the list of returned values for session.run()
-            _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
+            _, loss_val, tempval = session.run([optimizer, loss, temp], feed_dict=feed_dict)
             average_loss += loss_val
             loss_count = loss_count + 1
+            if np.isnan(loss_val):
+                print('temp value is ', tempval)
+                stop()
+
 
             # print loss every 2000 iterations
             if step % 2000 == 0:
@@ -254,20 +258,23 @@ def construct_exposure_graph(alpha, rho, invmu, train_inputs, train_labels, conf
 
     # negative samples. # how to sample without replacement? 
     batch_size = tf.shape(train_inputs)[0]
-    neg_words = negative_sample(train_labels, nneg, log_wcount)
-    neg_words = tf.transpose(neg_words)
-
+    wdist = tf.contrib.distributions.Categorical(logits=log_wcount)
+    neg_words = wdist.sample(nneg)
     neg_rho = tf.gather(rho, neg_words)
-    neg_logits = tf.reduce_sum(tf.mul(neg_rho, embed), 2)
+    neg_logits = tf.matmul(embed, neg_rho, transpose_b=True)
     neg_pi = tf.nn.sigmoid(neg_logits)
-
+    
     # calculate posterior probabilities
     neg_invmu = tf.gather(invmu, neg_words)
-    neg_mu = tf.sigmoid(neg_invmu)
-    mupi = tf.mul(neg_mu, neg_pi)
+    neg_mu = tf.expand_dims(tf.sigmoid(neg_invmu), 0)
+    neg_mupi = tf.mul(neg_mu, neg_pi)
+    floppy_loss = tf.log(1 - neg_mupi)
+
+    mask = tf.not_equal(tf.tile(tf.expand_dims(neg_words, 0), [batch_size, 1]), tf.expand_dims(train_labels, 1))
+    mask = tf.cast(mask, tf.float32)
 
     # calculate elbo for negative samples
-    neg_obj = tf.reduce_mean(tf.log(1 - mupi))
+    neg_obj = tf.reduce_sum(tf.mul(floppy_loss, mask)) / tf.reduce_sum(mask)
 
     # calculate regularizer
     word_udist = tf.contrib.distributions.Categorical(logits=np.ones(len(log_wcount)))
@@ -278,7 +285,7 @@ def construct_exposure_graph(alpha, rho, invmu, train_inputs, train_labels, conf
     loss = - pos_obj - neg_pos_ratio * neg_obj
     objective = regularizer * config['reg_weight'] + loss
 
-    return objective, loss, tf.reduce_mean(tf.sigmoid(invmu)) 
+    return objective, loss, tf.reduce_max(neg_mupi)
 
 
 def generate_batch(review, config):
