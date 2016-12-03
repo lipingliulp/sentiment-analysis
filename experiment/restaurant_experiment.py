@@ -39,7 +39,7 @@ reverse_dictionary = voc_dict['rev_dic']
 print('Sample data', trainset[0]['text'][:10], [reverse_dictionary[i] for i in trainset[0]['text'][:10]])
 
 # Step 2: set parameters of the model
-config = dict(use_sideinfo=False, K=128, max_iter=300000, half_window=1, reg_weight=1.0, num_neg=100, exposure=False)
+config = dict(use_sideinfo=False, K=128, max_iter=300000, half_window=1, reg_weight=1.0, num_neg=2000, negpos_ratio=1000, exposure=False)
 
 print(config_to_name(config))
 

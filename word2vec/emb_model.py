@@ -64,7 +64,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
         #objective, loss = construct_graph(alpha, rho, bias, train_sidevec, train_inputs, train_labels, config, log_wcount)
         objective, loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
         # Construct the SGD optimizer using a learning rate of 1.0.
-        optimizer = tf.train.GradientDescentOptimizer(1).minimize(objective)
+        optimizer = tf.train.GradientDescentOptimizer(0.5).minimize(objective)
 
         # Compute the cosine similarity between minibatch examples and all embeddings.
         norm = tf.sqrt(tf.reduce_sum(tf.square(alpha), 1, keep_dims=True))
@@ -239,9 +239,9 @@ def construct_graph(alpha, rho, bias, train_sidevec, train_inputs, train_labels,
 
 def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount):
 
-    nneg = 200
+    nneg = config['num_neg'] 
     voc_size = len(log_wcount)
-    neg_pos_ratio = 1000
+    neg_pos_ratio = config['negpos_ratio'] 
 
     # prepare embedding of context 
     alpha_select = tf.gather(alpha, train_inputs, name='context_alpha')
@@ -303,7 +303,7 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
     loss = - pos_obj - neg_pos_ratio * neg_obj
     objective = regularizer * config['reg_weight'] + loss
 
-    return objective, loss, objective 
+    return objective, loss, regularizer 
 
 
 def generate_batch(review, config):
