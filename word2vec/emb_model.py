@@ -87,6 +87,8 @@ def fit_emb(reviews, config, voc_dict, init_model):
             # We perform one update step by evaluating the optimizer op (including it
             # in the list of returned values for session.run()
             _, loss_val, tempval = session.run([optimizer, loss, temp], feed_dict=feed_dict)
+
+            loss_logg.append(loss_val)
             average_loss += loss_val
             loss_count = loss_count + 1
             if np.isnan(loss_val):
@@ -102,7 +104,6 @@ def fit_emb(reviews, config, voc_dict, init_model):
                 tempval = session.run(temp, feed_dict=feed_dict)
 
                 print("Average loss at step ", step, ": ", average_loss, " tempval:", tempval)
-                loss_logg.append((step, average_loss))
                 average_loss = 0
                 loss_count = 0
     
@@ -119,9 +120,8 @@ def fit_emb(reviews, config, voc_dict, init_model):
                         log_str = "%s %s," % (log_str, close_word)
                     print(log_str)
    
-         
-        # logging the last result
-        loss_logg.append((step, average_loss / loss_count))
+        
+        # save model parameters to dict
         model = dict(alpha=alpha.eval(), rho=rho.eval(), invmu=invmu.eval(), weight=weight.eval())
 
         return model, loss_logg
