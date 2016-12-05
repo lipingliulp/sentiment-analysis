@@ -53,7 +53,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
         objective, loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
         # Construct the SGD optimizer using a learning rate of 1.0.
-        optimizer = tf.train.AdagradOptimizer(1).minimize(objective)
+        optimizer = tf.train.AdagradOptimizer(0.4).minimize(objective)
 
         # Compute the cosine similarity between minibatch examples and all embeddings.
         norm = tf.sqrt(tf.reduce_sum(tf.square(alpha), 1, keep_dims=True))
