@@ -6,7 +6,6 @@ import numpy as np
 import math
 import tensorflow as tf
 import collections
-import random
 
 import sys
 
@@ -26,6 +25,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
     graph = tf.Graph()
     with graph.as_default():
+        tf.set_random_seed(27)
         # Input data.
         dim_atts = len(reviews[0]['atts']) 
         train_sidevec = tf.placeholder(tf.float32, shape=[dim_atts], name='atts')
@@ -44,12 +44,14 @@ def fit_emb(reviews, config, voc_dict, init_model):
                                 stddev=1))
 
             #invmu = tf.constant(np.ones(vocabulary_size) * np.log(10000), dtype=tf.float32)
-            invmu = tf.Variable(tf.zeros(vocabulary_size))
+            invmu = tf.Variable(tf.ones(vocabulary_size) * 10)
         else:
             alpha  = tf.Variable(init_model['alpha'])
             invmu  = tf.Variable(init_model['invmu'])
             rho    = tf.Variable(init_model['rho'])
             weight = tf.Variable(init_model['weight'])
+
+            print('use parameters of the initial model')
 
         objective, loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
         # Construct the SGD optimizer using a learning rate of 1.0.
@@ -76,8 +78,8 @@ def fit_emb(reviews, config, voc_dict, init_model):
         average_loss = 0
         loss_count = 0 
         for step in xrange(config['max_iter']):
-
-            review = reviews[step % len(reviews)]
+            rind = np.random.choice(len(reviews), 1)
+            review = reviews[rind]
             batch_sidevec, batch_inputs, batch_labels = generate_batch(review, config)
             if config['use_sideinfo']:
                 feed_dict = {train_sidevec : batch_sidevec, train_inputs : batch_inputs, train_labels : batch_labels}
@@ -138,12 +140,10 @@ def evaluate_emb(reviews, model, config, voc_dict):
 
     graph = tf.Graph()
     with graph.as_default():
+        tf.set_random_seed(27)
         # Input data.
-        if config['use_sideinfo']:
-            dim_atts = len(reviews[0]['atts']) 
-            train_sidevec = tf.placeholder(tf.float32, shape=[None, dim_atts], name='atts')
-        else:
-            train_sidevec = tf.placeholder(tf.float32, shape=[None, 0], name='atts')
+        dim_atts = len(reviews[0]['atts']) 
+        train_sidevec = tf.placeholder(tf.float32, shape=[dim_atts], name='atts')
 
         train_inputs = tf.placeholder(tf.int32, shape=[None, 2 * config['half_window']], name='train_contexts')
         train_labels = tf.placeholder(tf.int32, shape=[None], name='train_labels')
@@ -151,10 +151,10 @@ def evaluate_emb(reviews, model, config, voc_dict):
         # Ops and variables pinned to the CPU because of missing GPU implementation
         alpha = tf.constant(model['alpha'])
         rho = tf.constant(model['rho'])
-        bias = tf.constant(model['b'])
         invmu = tf.constant(model['invmu'])
+        weight = tf.constant(model['weight'])
 
-        objective, loss = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
+        objective, loss, word_loss = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
 
         # Add variable initializer.
         init = tf.initialize_all_variables()
@@ -164,24 +164,23 @@ def evaluate_emb(reviews, model, config, voc_dict):
         init.run()
         print("Initialized")
 
-        loss_sum = 0
-        num_pairs = 0
+        loss_array = [] 
         for step in xrange(len(reviews)):
             review = reviews[step % len(reviews)]
             batch_sidevec, batch_inputs, batch_labels = generate_batch(review, config)
-            feed_dict = {train_sidevec : batch_sidevec, train_inputs : batch_inputs, train_labels : batch_labels}
+            if config['use_sideinfo']:
+                feed_dict = {train_sidevec : batch_sidevec, train_inputs : batch_inputs, train_labels : batch_labels}
+            else:
+                feed_dict = {train_inputs : batch_inputs, train_labels : batch_labels}
     
-            loss_val = session.run(loss, feed_dict=feed_dict)
-            loss_sum += loss_val * len(batch_labels)
-
-            num_pairs += len(batch_labels)
+            word_loss_val = session.run(word_loss, feed_dict=feed_dict)
+            loss_array.append(word_loss_val)
 
             if step % 2000 == 0:
-                print("Average loss at step ", step, ": ", loss_sum / num_pairs)
+                print("Loss mean and std at step ", step, ": ", np.mean(np.concatenate(loss_array)), np.std(np.concatenate(loss_array)))
         
-        avg_loss = loss_sum / num_pairs
 
-        return avg_loss 
+        return np.concatenate(loss_array)
 
 
 def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount):
@@ -207,9 +206,13 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
         else: 
             pos_obj_mu = - tf.nn.softplus(- pos_invmu)
         pos_obj = tf.reduce_mean(pos_obj_pi) + tf.reduce_mean(pos_obj_mu)
+
+        pos_word_obj = pos_obj_pi + pos_obj_mu
     else:
-        pos_obj_pi = - tf.nn.softplus(- pos_logits - pos_invmu)
+        pos_obj_pi = - tf.nn.softplus(- pos_logits) #- pos_invmu)
         pos_obj = tf.reduce_mean(pos_obj_pi) 
+        
+        pos_word_obj = pos_obj_pi
 
     # negative samples. # how to sample without replacement? 
     batch_size = tf.shape(train_inputs)[0]
@@ -233,14 +236,16 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
         neg_mupi = tf.mul(neg_mu, neg_pi)
         floppy_loss = tf.log(1 - neg_mupi)
     else:
-        neg_logitsb = neg_logits + tf.expand_dims(neg_invmu, 0)
+        neg_logitsb = neg_logits # + tf.expand_dims(neg_invmu, 0)
         floppy_loss = - tf.nn.softplus(neg_logitsb)
 
     mask = tf.not_equal(tf.tile(tf.expand_dims(neg_words, 0), [batch_size, 1]), tf.expand_dims(train_labels, 1))
     mask = tf.cast(mask, tf.float32)
 
     # calculate elbo for negative samples
+    neg_word_obj = tf.reduce_sum(tf.mul(floppy_loss, mask), 1)  / tf.reduce_sum(mask, 1)
     neg_obj = tf.reduce_sum(tf.mul(floppy_loss, mask)) / tf.reduce_sum(mask)
+
 
     # calculate regularizer
     regularizer = (tf.reduce_mean(tf.square(neg_rho)) + tf.reduce_mean(tf.square(alpha_select))) * tf.cast(tf.shape(alpha)[1], tf.float32)
@@ -249,9 +254,10 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
     loss = - pos_obj - neg_pos_ratio * neg_obj
     objective = regularizer * config['reg_weight'] + loss
     #objective = loss
+    
+    word_loss = - pos_word_obj - neg_word_obj
 
-
-    return objective, loss, regularizer 
+    return objective, loss, word_loss
 
 
 def generate_batch(review, config):

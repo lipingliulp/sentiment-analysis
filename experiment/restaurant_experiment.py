@@ -3,14 +3,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-import math
-import os
-import random
 import cPickle as pickle
 
 import numpy as np
-from six.moves import urllib
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 
@@ -23,6 +18,7 @@ from emb_model import generate_batch
 from emb_model import fit_emb
 import matplotlib.pyplot as plt
 
+np.random.seed(seed=27)
 
 # Step 1: load data
 
@@ -39,7 +35,7 @@ reverse_dictionary = voc_dict['rev_dic']
 print('Sample data', trainset[0]['text'][:10], [reverse_dictionary[i] for i in trainset[0]['text'][:10]])
 
 # Step 2: set parameters of the model
-config = dict(use_sideinfo=False, K=128, max_iter=300000, half_window=1, reg_weight=1.0, num_neg=2000, negpos_ratio=1000, exposure=False)
+config = dict(use_sideinfo=False, K=64, max_iter=300000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=False)
 
 print(config_to_name(config))
 
@@ -54,25 +50,23 @@ for i in range(8):
           '->', labels[i], reverse_dictionary[labels[i]])
 
 # Step 4: Fit a emb model
-#dummy_config = config.copy()
-#dummy_config['use_sideinfo'] = False
-#dummy_config['max_iter'] = 200000 
-#mfile = config_to_name(dummy_config) + '.pkl'
-#train_noside = pickle.load(open(data_path + 'splits/' + mfile, "rb"))
-#init_model = train_noside['model']
-init_model = None
+if config['cont_train']:
+    dummy_config = config.copy()
+    dummy_config['use_sideinfo'] = False 
+    dummy_config['exposure'] = False 
+    dummy_config['max_iter'] = 300000 
+    mfile = config_to_name(dummy_config) + '.pkl'
+    print(mfile) 
+    train_noside = pickle.load(open(data_path + 'splits/' + mfile, "rb"))
+    init_model = train_noside['model']
+else:
+    init_model = None
 
 emb_model, logg = fit_emb(trainset, config, voc_dict, init_model)
 
 # Step 5: Save result and Visualize the embeddings.
 
 mfile = config_to_name(config) + '.pkl'
-pickle.dump(dict(model=emb_model, logg=logg), open(data_path + 'splits/continue_training' + mfile, "wb"))
+pickle.dump(dict(model=emb_model, logg=logg), open(data_path + 'splits/' + mfile, "wb"))
 
-# plot curve
-
-steps, avg_loss = zip(*logg)
-plt.plot(steps, avg_loss)
-plt.ylabel('average loss')
-plt.ylabel('iterations')
-plt.show()
+print('Training done!')
