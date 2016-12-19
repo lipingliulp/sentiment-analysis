@@ -4,13 +4,13 @@ import re
 import numpy as np
 import cPickle as pickle
 
-data_path = '../data/'
 dataset = 'restaurant'
+data_path = '../../data/' + dataset + '/'
 tar_file = 'yelp_dataset_challenge_academic_dataset.tar'
 tfile = tarfile.open(data_path + tar_file, mode='r')
 rfile = tfile.extractfile('yelp_academic_dataset_review.json')
 
-restaurant_dict = pickle.load(open(data_path + dataset + '/voc_dict.pkl', "rb"))
+restaurant_dict = pickle.load(open(data_path + 'voc_dict.pkl', "rb"))
 busi_dict = pickle.load(open(data_path + 'busi_dict.pkl', "rb"))
 dictionary = restaurant_dict['dic']
 reverse_dictionary = restaurant_dict['rev_dic'] 
@@ -75,36 +75,20 @@ while True:
     instance = dict(text=text, atts=atts) 
     instances.append(instance)
 
+    if 18510 <= ireview and ireview <= 18513:
+        print("line" + str(ireview) + ": " + line)
+ 
+
+
     ireview = ireview + 1
     if ireview % 1000 == 0:
         print('Parsed %d reviews...' % ireview)
     if ireview == num_review:
         break
 
-pickle.dump(instances, open(data_path + 'restaurant/reviews.pkl', 'wb'))
+#pickle.dump(instances, open(data_path + 'restaurant/reviews.pkl', 'wb'))
 
 
-
-
-
-
-#reviews = list()
-#
-#for i in xrange(100000): 
-#    rfile.readline():
-#    review = json.loads(line)
-#    rwords = re.sub('[^A-Za-z0-9]+', ' ', review['text'].encode('ascii','ignore')).lower().split()
-#    if len(rwords) == 0:
-#        continue
-#    data = [(dictionary[word] if word in dictionary else dictionary['UNK'])  for word in rwords]
-#
-#
-#
-#    reviews.append(dict(data=data, stars=review['stars']))
-#
-#print('Overall %d reviews' % len(reviews))
-#
-#print('Sample data', reviews[0]['data'][:10], [reverse_dictionary[i] for i in reviews[0]['data'][:10]])
 
 
 
