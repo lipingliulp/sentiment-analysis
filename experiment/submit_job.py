@@ -1,7 +1,7 @@
 import string
 import os
 
-settings = ['exposure=True', 'use_sideinfo=True', 'K=16'] 
+settings = ['exposure=False', 'use_sideinfo=False', 'K=16'] 
 
 name = ''
 ss = ''
@@ -24,10 +24,9 @@ job_str = """#!/bin/sh
 #PBS -o localhost:/u/4/l/ll3105/sentiment-analysis/experiment/log
 #PBS -e localhost:/u/4/l/ll3105/sentiment-analysis/experiment/log
 
-tfpy restaurant_experiment.py %s
+tfpy run_experiment.py %s
 
 # End of script""" % (name, ss)
-
 
 with open('job.sh', 'w') as jfile:
     jfile.write(job_str)
