@@ -1,0 +1,25 @@
+'''run restaurant experiment'''
+import sys
+import string
+from  restaurant_experiment import restaurant_experiment
+
+if __name__ == '__main__':
+
+    config = dict(use_sideinfo=False, K=16, max_iter=300000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=False)
+    
+    for iarg in xrange(1, len(sys.argv)):
+        arg = sys.argv[iarg]
+        key, svalue = string.split(arg, '=')
+
+        value = False if svalue == 'False' else (True if svalue == 'True' else int(value)) 
+        
+        if key in config:
+            config[key] = value
+        else:
+            raise Exception(key + ' is not a key of the config')
+   
+    print('The configuration is: ')
+    print(config)
+
+    restaurant_experiment(config)
+
