@@ -78,7 +78,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
         average_loss = 0
         loss_count = 0 
         for step in xrange(config['max_iter']):
-            rind = np.random.choice(len(reviews), 1)
+            rind = np.random.choice(len(reviews))
             review = reviews[rind]
             batch_sidevec, batch_inputs, batch_labels = generate_batch(review, config)
             if config['use_sideinfo']:
@@ -105,7 +105,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
                 # The average loss is an estimate of the loss over the last 2000 batches.
                 tempval = session.run(temp, feed_dict=feed_dict)
 
-                print("Average loss at step ", step, ": ", average_loss, " tempval:", tempval)
+                print("Average loss at step ", step, ": ", average_loss, " tempval:", np.mean(tempval))
                 average_loss = 0
                 loss_count = 0
     

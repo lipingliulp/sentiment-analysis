@@ -9,9 +9,9 @@ if __name__ == '__main__':
     
     for iarg in xrange(1, len(sys.argv)):
         arg = sys.argv[iarg]
-        key, svalue = string.split(arg, '=')
+        key, strv = string.split(arg, '=')
 
-        value = False if svalue == 'False' else (True if svalue == 'True' else int(value)) 
+        value = False if strv == 'False' else (True if strv == 'True' else int(strv)) 
         
         if key in config:
             config[key] = value
