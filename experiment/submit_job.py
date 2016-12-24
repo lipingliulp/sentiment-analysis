@@ -1,7 +1,7 @@
 import string
 import os
 
-settings = ['exposure=False', 'use_sideinfo=False', 'K=16'] 
+settings = ['exposure=False', 'use_sideinfo=False', 'K=64'] 
 
 name = ''
 ss = ''
@@ -15,7 +15,7 @@ job_str = """#!/bin/sh
 # Directives
 #PBS -N w2v%s
 #PBS -W group_list=yetidsi
-#PBS -l nodes=1,walltime=05:00:00,mem=1000mb
+#PBS -l nodes=1,walltime=10:00:00,mem=2000mb
 #PBS -M ll3105@columbia.edu
 #PBS -m abe
 #PBS -V
