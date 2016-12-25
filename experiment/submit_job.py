@@ -1,21 +1,14 @@
 import string
 import os
 
-settings = ['exposure=False', 'use_sideinfo=False', 'K=16'] 
+def yeti_script(name, command, hours=5, memory=1):
 
-name = ''
-ss = ''
-for setting in settings:
-    k, v = string.split(setting, '=') 
-    name = name +  k[0] + v + '_'
-    ss = ss + setting + ' '
-
-job_str = """#!/bin/sh
+    yeti_str = """#!/bin/sh
 
 # Directives
-#PBS -N w2v%s
+#PBS -N %s
 #PBS -W group_list=yetidsi
-#PBS -l nodes=1,walltime=05:00:00,mem=1000mb
+#PBS -l nodes=1,walltime=0%s:00:00,mem=%sgb
 #PBS -M ll3105@columbia.edu
 #PBS -m abe
 #PBS -V
@@ -24,11 +17,49 @@ job_str = """#!/bin/sh
 #PBS -o localhost:/u/4/l/ll3105/sentiment-analysis/experiment/log
 #PBS -e localhost:/u/4/l/ll3105/sentiment-analysis/experiment/log
 
-tfpy run_experiment.py %s
+%s
 
-# End of script""" % (name, ss)
+# End of script""" % (name, hours, memory, command)
 
+    return yeti_str
+
+
+
+def habanero_script(name, command, hours=5, memory=1):
+
+    job_str = """#!/bin/sh
+#
+#SBATCH --account=dsi            # The account name for the job.
+#SBATCH --job-name=%s         # The job name.
+#SBATCH --error=log/%s.e
+#SBATCH --output=log/%s.o
+#SBATCH -c 1                     # The number of cpu cores to use.
+#SBATCH --time=%s:00:00              # The time the job will take to run.
+#SBATCH --mem-per-cpu=%sgb        # The memory the job will use per cpu core.
+#SBATCH --mail-type=BEGIN,END,FAIL
+#SBATCH --mail-user=liping.liulp@gmail.com
+
+%s
+
+# End of script""" % (name, name, name, hours, memory, command)
+    return job_str
+
+
+settings = ['exposure=False', 'use_sideinfo=False', 'K=512'] 
+
+name = 'w2v'
+ss = 'python run_experiment.py '
+for setting in settings:
+    k, v = string.split(setting, '=') 
+    name = name +  k[0] + v + '_'
+    ss = ss + setting + ' '
+
+script = habanero_script(name, ss, hours=10, memory=2)
+
+print(script)
 with open('job.sh', 'w') as jfile:
-    jfile.write(job_str)
+    jfile.write(script)
 
-os.system('qsub job.sh')
+os.system('sbatch job.sh')
+
+

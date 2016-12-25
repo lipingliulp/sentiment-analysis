@@ -5,7 +5,7 @@ from  restaurant_experiment import restaurant_experiment
 
 if __name__ == '__main__':
 
-    config = dict(use_sideinfo=False, K=16, max_iter=300000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=False)
+    config = dict(use_sideinfo=False, K=16, max_iter=800000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=True)
     
     for iarg in xrange(1, len(sys.argv)):
         arg = sys.argv[iarg]

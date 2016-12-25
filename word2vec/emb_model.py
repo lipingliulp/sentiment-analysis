@@ -17,8 +17,9 @@ def fit_emb(reviews, config, voc_dict, init_model):
     vocabulary_size = len(voc_dict['dic']) 
     reverse_dictionary = voc_dict['rev_dic']
     wcount = [voc_dict['freq'][i][1] for i in xrange(vocabulary_size)]
-    log_wcount = np.array(wcount, dtype=np.float32)
-    log_wcount = 0.75 * np.log(log_wcount) 
+    #log_wcount = np.array(wcount, dtype=np.float32)
+    #log_wcount = 0.75 * np.log(log_wcount) 
+    log_wcount = np.ones(vocabulary_size, dtype=np.float32) 
 
     valid_size = 16     # Random set of words to evaluate similarity on.
     valid_examples = np.random.choice(range(100), valid_size, replace=False)
@@ -55,7 +56,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
         objective, loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
         # Construct the SGD optimizer using a learning rate of 1.0.
-        optimizer = tf.train.AdagradOptimizer(0.4).minimize(objective)
+        optimizer = tf.train.AdagradOptimizer(0.8).minimize(objective)
 
         # Compute the cosine similarity between minibatch examples and all embeddings.
         norm = tf.sqrt(tf.reduce_sum(tf.square(alpha), 1, keep_dims=True))
@@ -77,7 +78,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
         loss_logg = []
         average_loss = 0
         loss_count = 0 
-        for step in xrange(config['max_iter']):
+        for step in xrange(1, config['max_iter'] + 1):
             rind = np.random.choice(len(reviews))
             review = reviews[rind]
             batch_sidevec, batch_inputs, batch_labels = generate_batch(review, config)
@@ -99,7 +100,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
 
             # print loss every 2000 iterations
-            if step % 2000 == 0:
+            if step % 5000 == 0:
                 if step > 0:
                   average_loss /= loss_count
                 # The average loss is an estimate of the loss over the last 2000 batches.
@@ -135,8 +136,9 @@ def evaluate_emb(reviews, model, config, voc_dict):
     embedding_size = config['K']
     vocabulary_size = len(voc_dict['dic'])
     wcount = [voc_dict['freq'][i][1] for i in xrange(vocabulary_size)]
-    log_wcount = np.array(wcount, dtype=np.float32)
-    log_wcount = 0.75 * np.log(log_wcount) 
+    #log_wcount = np.array(wcount, dtype=np.float32)
+    #log_wcount = 0.75 * np.log(log_wcount) 
+    log_wcount = np.ones(vocabulary_size, dtype=np.float32) 
 
     graph = tf.Graph()
     with graph.as_default():
