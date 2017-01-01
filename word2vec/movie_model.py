@@ -11,11 +11,10 @@ import sys
 
 
 # config = dict(K=K, voc_size=voc_size, use_sideinfo=use_sideinfo, half_window=half_window)
-def fit_emb(reviews, config, voc_dict, init_model):
+def fit_emb(reviews, config, init_model):
 
     embedding_size = config['K']
     movie_size = reviews.shape[1]
-
 
     graph = tf.Graph()
     with graph.as_default():
@@ -43,7 +42,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
             print('use parameters of the initial model')
 
-        objective, loss, word_loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
+        objective, loss, word_loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config)
         # Construct the SGD optimizer using a learning rate of 1.0.
         optimizer = tf.train.AdagradOptimizer(0.8).minimize(objective)
 
@@ -89,7 +88,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
         return model, loss_logg
 
-def evaluate_emb(reviews, model, config, voc_dict):
+def evaluate_emb(reviews, model, config):
 
     embedding_size = config['K']
     movie_size = reviews.shape[1]
@@ -110,7 +109,7 @@ def evaluate_emb(reviews, model, config, voc_dict):
         invmu = tf.constant(model['invmu'])
         weight = tf.constant(model['weight'])
 
-        objective, loss, word_loss, _ = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
+        objective, loss, word_loss, _ = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config)
 
         # Add variable initializer.
         init = tf.initialize_all_variables()
@@ -138,7 +137,7 @@ def evaluate_emb(reviews, model, config, voc_dict):
         return loss_array
 
 
-def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount):
+def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config):
 
     #prepare embedding of context 
     alpha_select = tf.gather(alpha, train_inputs, name='context_alpha')
@@ -147,11 +146,11 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
 
     #positives: construct the variables
     rho_select = tf.gather(rho, train_inputs, name='label_rho')
-    prod = tf.sum(embed, rho_select, reduction_indices=1)
+    prod = tf.reduce_sum(embed * rho_select, reduction_indices=1)
 
     lamb = tf.nn.softplus(prod)
-    rate = train_labels - 1.0
-    logprob = - lamb + rate * tf.log(lamb)
+    rate = train_labels - 1
+    logprob = - lamb + tf.cast(rate, tf.float32) * tf.log(lamb)
 
     # elbo of positive samples. Note that q_ij = 1 
     if config['exposure']:
@@ -184,7 +183,7 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
 
     objective = regularizer * config['reg_weight'] - llh 
 
-    return objective, llh, ins_llh
+    return objective, llh, ins_llh, llh
 
 def logsumexp(vec1, vec2):
     flag = tf.greater(vec1, vec2)
@@ -194,12 +193,15 @@ def logsumexp(vec1, vec2):
 
 def generate_batch(review, config):
 
+    
+    ind = review.nonzero()[0] 
+    rate = review[ind]
+
+    batch_size = ind.shape[0]
     if config['use_sideinfo']:
         sideinfo = np.zeros((batch_size, 0))
     else:
         sideinfo = np.zeros((batch_size, 0))
-    
-    ind = review.nonzero()[0] 
-    rate = review[ind]
+
     return sideinfo, ind, rate 
 

@@ -26,7 +26,7 @@ def restaurant_experiment(config):
     np.random.seed(seed=27)
     
     dataset = 'restaurant'
-    data_path = '../data/' + dataset + '/'
+    data_path = '/rigel/dsi/users/ll3105/sa-data/' + dataset + '/'
     
     trfile = data_path + '/splits/train0.pkl'
     trainset = pickle.load(open(trfile, 'rb'))
@@ -51,6 +51,7 @@ def restaurant_experiment(config):
     print(config_to_name(config))
     if config['cont_train']:
         dummy_config = config.copy()
+        dummy_config['cont_train'] = False 
         dummy_config['use_sideinfo'] = False 
         dummy_config['exposure'] = False 
         dummy_config['max_iter'] = 300000 
@@ -64,7 +65,6 @@ def restaurant_experiment(config):
     emb_model, logg = fit_emb(trainset, config, voc_dict, init_model)
     
     # Step 4: Save result and Visualize the embeddings.
-    
     mfile = config_to_name(config) + '.pkl'
     pickle.dump(dict(model=emb_model, logg=logg), open(data_path + 'splits/' + mfile, "wb"))
     

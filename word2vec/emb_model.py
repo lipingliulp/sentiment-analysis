@@ -54,7 +54,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
             print('use parameters of the initial model')
 
-        objective, loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
+        objective, loss, word_loss, temp = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
         # Construct the SGD optimizer using a learning rate of 1.0.
         optimizer = tf.train.AdagradOptimizer(0.8).minimize(objective)
 
@@ -89,14 +89,11 @@ def fit_emb(reviews, config, voc_dict, init_model):
 
             # We perform one update step by evaluating the optimizer op (including it
             # in the list of returned values for session.run()
-            _, loss_val, tempval = session.run([optimizer, loss, temp], feed_dict=feed_dict)
+            _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
 
             loss_logg.append(loss_val)
             average_loss += loss_val
             loss_count = loss_count + 1
-            if np.isnan(loss_val):
-                print('temp value is ', tempval)
-                raise Exception('Loss value is nan')
 
 
             # print loss every 2000 iterations
@@ -106,7 +103,7 @@ def fit_emb(reviews, config, voc_dict, init_model):
                 # The average loss is an estimate of the loss over the last 2000 batches.
                 tempval = session.run(temp, feed_dict=feed_dict)
 
-                print("Average loss at step ", step, ": ", average_loss, " tempval:", np.mean(tempval))
+                print("Average loss at step ", step, ": ", average_loss, " tempval:", tempval)
                 average_loss = 0
                 loss_count = 0
     
@@ -156,7 +153,7 @@ def evaluate_emb(reviews, model, config, voc_dict):
         invmu = tf.constant(model['invmu'])
         weight = tf.constant(model['weight'])
 
-        objective, loss, word_loss = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
+        objective, loss, word_loss, _ = construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount)
 
         # Add variable initializer.
         init = tf.initialize_all_variables()
@@ -178,11 +175,11 @@ def evaluate_emb(reviews, model, config, voc_dict):
             word_loss_val = session.run(word_loss, feed_dict=feed_dict)
             loss_array.append(word_loss_val)
 
-            if step % 2000 == 0:
+            if step % 5000 == 0:
                 print("Loss mean and std at step ", step, ": ", np.mean(np.concatenate(loss_array)), np.std(np.concatenate(loss_array)))
         
 
-        return np.concatenate(loss_array)
+        return loss_array
 
 
 def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount):
@@ -257,9 +254,9 @@ def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inp
     objective = regularizer * config['reg_weight'] + loss
     #objective = loss
     
-    word_loss = - pos_word_obj - neg_word_obj
+    word_loss = - pos_word_obj - neg_pos_ratio * neg_word_obj
 
-    return objective, loss, word_loss
+    return objective, loss, word_loss, pos_score
 
 
 def generate_batch(review, config):

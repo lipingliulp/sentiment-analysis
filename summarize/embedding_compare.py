@@ -39,35 +39,40 @@ def top_words(score, num):
 
 
 dataset = 'restaurant'
-data_path = '../data/' + dataset + '/'
+data_path = '/rigel/dsi/users/ll3105/sa-data/' + dataset + '/'
 voc_dict = pickle.load(open(data_path + 'voc_dict.pkl', 'rb'))
 reverse_dictionary = voc_dict['rev_dic']
 dictionary = voc_dict['dic']
 
 
-config1 = dict(use_sideinfo=True, K=64, max_iter=300000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=True, cont_train=True)
-
+config1 = dict(use_sideinfo=False, K=64, max_iter=800000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=True)
 alpha1, rho1, weight1, invmu1 = load_model(config1, data_path + 'splits/')
 
-
-config2 = dict(use_sideinfo=False, K=64, max_iter=300000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=True, cont_train=True)
+config2 = dict(use_sideinfo=False, K=64, max_iter=800000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=True, cont_train=True)
 alpha2, rho2, weight2, invmu2 = load_model(config2, data_path + 'splits/')
 
+config3 = dict(use_sideinfo=True, K=64, max_iter=800000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=True, cont_train=True)
+alpha3, rho3, weight3, invmu3 = load_model(config3, data_path + 'splits/')
 
-rand_ind = np.random.choice(alpha1.shape[0], 100, replace=False)
-#words = ['noodle', 'delicious', 'disgusting', 'expensive', 'noisy', 'waiter', 'roach']
-#rand_ind = np.array([dictionary[word] for word in words])
+#rand_ind = np.random.choice(alpha1.shape[0], 100, replace=False)
+words = ['ramen', 'delicious', 'disgusting', 'expensive', 'noisy', 'waiter', 'dirty', 'sushi', 'pepperoni', 'water', 'restaurant', 
+         'guest', 'pricy', 'coffee', 'early', 'carry', 'often', 'back', 'again', 'mcdonald']
+rand_ind = np.array([dictionary[word] for word in words])
 
 print('==================================================================================')
 neighbors1 = nearest_words(alpha1, rand_ind)
 neighbors2 = nearest_words(alpha2, rand_ind)
+neighbors3 = nearest_words(alpha3, rand_ind)
 
-nneq = np.sum(neighbors1 != neighbors2, axis=1)
-top_diff = np.argsort(-nneq)[0 : 10]
+nneq = np.sum(neighbors1 != neighbors2, axis=1) + np.sum(neighbors2 != neighbors3, axis=1) + np.sum(neighbors1 != neighbors3, axis=1)
+top_diff = np.argsort(-nneq)[0 : 15]
+#top_diff = range(0, 100)
 
-print_neighbors(rand_ind[top_diff], neighbors1[top_diff, :])
+print_neighbors(rand_ind[top_diff], neighbors1[top_diff, 1:])
 print('-------------')
-print_neighbors(rand_ind[top_diff], neighbors2[top_diff, :])
+print_neighbors(rand_ind[top_diff], neighbors2[top_diff, 1:])
+print('-------------')
+print_neighbors(rand_ind[top_diff], neighbors3[top_diff, 1:])
 
 print('==================================================================================')
 
@@ -93,6 +98,8 @@ nr = neighbor_rank(word_ref, words, alpha1)
 print(nr)
 nr = neighbor_rank(word_ref, words, alpha2)
 print(nr)
+nr = neighbor_rank(word_ref, words, alpha3)
+print(nr)
 
 word_ref = 'pizza'
 words = ['sushi', 'breakfast', 'rice', 'pho', 'pork', 'egg', 'pancakes']
@@ -101,25 +108,27 @@ nr = neighbor_rank(word_ref, words, alpha1)
 print(nr)
 nr = neighbor_rank(word_ref, words, alpha2)
 print(nr)
+nr = neighbor_rank(word_ref, words, alpha3)
+print(nr)
 
 print('==================================================================================')
 
 print('"pizza" feature has the largest weight on word:')
-print(top_words(weight1[:, 4], 8))
+print(top_words(weight3[:, 4], 8))
 print('"pizza" feature has the smallest weight on word:')
-print(top_words(-weight1[:, 4], 8))
+print(top_words(-weight3[:, 4], 8))
 
 print('"waiter" feature has the largest weight on word:')
-print(top_words(weight1[:, 15], 8))
+print(top_words(weight3[:, 15], 8))
 print('"waiter" feature has the smallest weight on word:')
-print(top_words(-weight1[:, 15], 8))
+print(top_words(-weight3[:, 15], 8))
 
 
 
 print('"outseat" feature has the largest weight on word:')
-print(top_words(weight1[:, 14], 8))
+print(top_words(weight3[:, 14], 8))
 print('"outseat" feature has the smallest weight on word:')
-print(top_words(-weight1[:, 14], 8))
+print(top_words(-weight3[:, 14], 8))
 
 
 
