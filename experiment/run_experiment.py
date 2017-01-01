@@ -1,11 +1,13 @@
 '''run restaurant experiment'''
 import sys
 import string
-from  restaurant_experiment import restaurant_experiment
+#from  restaurant_experiment import restaurant_experiment
+from  movie_experiment import movie_experiment
 
 if __name__ == '__main__':
 
-    config = dict(use_sideinfo=False, K=16, max_iter=800000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=True)
+    #config = dict(use_sideinfo=False, K=16, max_iter=800000, half_window=1, reg_weight=0.01, num_neg=500, negpos_ratio=1000, exposure=False, cont_train=True) 
+    config = dict(use_sideinfo=False, K=64, max_iter=800000, reg_weight=0.01, exposure=False, cont_train=False)
    
     for iarg in xrange(1, len(sys.argv)):
         arg = sys.argv[iarg]
@@ -21,5 +23,6 @@ if __name__ == '__main__':
     print('The configuration is: ')
     print(config)
 
-    restaurant_experiment(config)
+    #restaurant_experiment(config)
+    movie_experiment(config)
 
