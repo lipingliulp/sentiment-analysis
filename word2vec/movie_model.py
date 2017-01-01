@@ -135,86 +135,62 @@ def evaluate_emb(reviews, model, config, voc_dict):
             if step % 5000 == 0:
                 print("Loss mean and std at step ", step, ": ", np.mean(np.concatenate(loss_array)), np.std(np.concatenate(loss_array)))
         
-
         return loss_array
 
 
 def construct_exposure_graph(alpha, rho, invmu, weight, train_sidevec, train_inputs, train_labels, config, log_wcount):
 
-    nneg = config['num_neg'] 
-    neg_pos_ratio = config['negpos_ratio'] 
-
-    # prepare embedding of context 
+    #prepare embedding of context 
     alpha_select = tf.gather(alpha, train_inputs, name='context_alpha')
-    embed = tf.reduce_sum(alpha_select, 1, name='context_alpha_sum')
+    alpha_sum = tf.reduce_sum(alpha_select, keep_dims=True, reduction_indices=0)
+    embed = alpha_sum - alpha_select   
 
     #positives: construct the variables
-    pos_rho = tf.gather(rho, train_labels, name='label_rho')
-    pos_logits = tf.reduce_sum(tf.mul(embed, pos_rho), 1)
-    pos_invmu = tf.gather(invmu, train_labels)
+    rho_select = tf.gather(rho, train_inputs, name='label_rho')
+    prod = tf.sum(embed, rho_select, reduction_indices=1)
+
+    lamb = tf.nn.softplus(prod)
+    rate = train_labels - 1.0
+    logprob = - lamb + rate * tf.log(lamb)
 
     # elbo of positive samples. Note that q_ij = 1 
     if config['exposure']:
-        pos_obj_pi = - tf.nn.softplus(- pos_logits)
-        if config['use_sideinfo']:
-            pos_score = tf.reduce_sum(tf.mul(tf.gather(weight, train_labels), train_sidevec), 1)
-            pos_obj_mu = - tf.nn.softplus(- pos_invmu - pos_score)
-        else: 
-            pos_obj_mu = - tf.nn.softplus(- pos_invmu)
-        pos_obj = tf.reduce_mean(pos_obj_pi) + tf.reduce_mean(pos_obj_mu)
 
-        pos_word_obj = pos_obj_pi + pos_obj_mu
-    else:
-        pos_obj_pi = - tf.nn.softplus(- pos_logits) #- pos_invmu)
-        pos_obj = tf.reduce_mean(pos_obj_pi) 
+        if config['use_sideinfo']:
+            raise Exception('Not implemented')
+        else: 
+            obs_logits = invmu
+
+        obs_logprob = - tf.nn.softplus(- obs_logits)
+        obs_joint = obs_logprob + logprob
+
+        flag = tf.equal(rate, 0)
+        zobs_logprob = - tf.nn.softplus(tf.boolean_select(obs_logits, flag))
+        joint_select = tf.boolean_select(obs_joint, flag)
+
+        marg = tf.logsumexp(zobs_logprob, joint_select)
+
+        llh = tf.reduce_sum(marg) + tf.reduce_sum(tf.boolean_select(obs_joint, tf.logical_not(flag)))
+
+        find = tf.squeeze(tf.where(flag))
+        ins_llh = tf.scatter_update(obs_joint, find, marg) 
         
-        pos_word_obj = pos_obj_pi
+    else:
+        llh = tf.reduce_sum(logprob)
+        ins_llh = logprob
 
     # negative samples. # how to sample without replacement? 
-    batch_size = tf.shape(train_inputs)[0]
-    wdist = tf.contrib.distributions.Categorical(logits=log_wcount)
-    neg_words = wdist.sample(nneg)
-    neg_rho = tf.gather(rho, neg_words)
-    neg_logits = tf.matmul(embed, neg_rho, transpose_b=True)
-    
-    neg_invmu = tf.gather(invmu, neg_words)
+    regularizer = (tf.reduce_sum(tf.square(rho_select)) + tf.reduce_sum(tf.square(alpha_select))) * 0.5
 
-    # calculate posterior probabilities
-    if config['exposure']:
-        neg_pi = tf.nn.sigmoid(neg_logits)
+    objective = regularizer * config['reg_weight'] - llh 
 
-        if config['use_sideinfo']:
-            neg_score = tf.reduce_sum(tf.mul(tf.gather(weight, neg_words), train_sidevec), 1)
-            neg_mu = tf.expand_dims(tf.sigmoid(neg_invmu + neg_score), 0)
-        else: 
-            neg_mu = tf.expand_dims(tf.sigmoid(neg_invmu), 0)
+    return objective, llh, ins_llh
 
-        neg_mupi = tf.mul(neg_mu, neg_pi)
-        floppy_loss = tf.log(1 - neg_mupi)
-    else:
-        neg_logitsb = neg_logits # + tf.expand_dims(neg_invmu, 0)
-        floppy_loss = - tf.nn.softplus(neg_logitsb)
-
-    mask = tf.not_equal(tf.tile(tf.expand_dims(neg_words, 0), [batch_size, 1]), tf.expand_dims(train_labels, 1))
-    mask = tf.cast(mask, tf.float32)
-
-    # calculate elbo for negative samples
-    neg_word_obj = tf.reduce_sum(tf.mul(floppy_loss, mask), 1)  / tf.reduce_sum(mask, 1)
-    neg_obj = tf.reduce_sum(tf.mul(floppy_loss, mask)) / tf.reduce_sum(mask)
-
-
-    # calculate regularizer
-    regularizer = (tf.reduce_mean(tf.square(neg_rho)) + tf.reduce_mean(tf.square(alpha_select))) * tf.cast(tf.shape(alpha)[1], tf.float32)
-
-    # calculate the final objective
-    loss = - pos_obj - neg_pos_ratio * neg_obj
-    objective = regularizer * config['reg_weight'] + loss
-    #objective = loss
-    
-    word_loss = - pos_word_obj - neg_pos_ratio * neg_word_obj
-
-    return objective, loss, word_loss, pos_score
-
+def logsumexp(vec1, vec2):
+    flag = tf.greater(vec1, vec2)
+    maxv = tf.select(flag, vec1, vec2)
+    lse = tf.log(tf.exp(vec1 - maxv) + tf.exp(vec2 - maxv)) + maxv
+    return lse
 
 def generate_batch(review, config):
 
