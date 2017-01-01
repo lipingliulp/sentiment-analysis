@@ -8,7 +8,11 @@ def yeti_script(name, command, hours=5, memory=1):
 # Directives
 #PBS -N %s
 #PBS -W group_list=yetidsi
+<<<<<<< HEAD
 #PBS -l nodes=1,walltime=0%s:00:00,mem=%sgb
+=======
+#PBS -l nodes=1,walltime=10:00:00,mem=2000mb
+>>>>>>> da936040b9ff2f2325b6b0555162a2a0c80e0f9f
 #PBS -M ll3105@columbia.edu
 #PBS -m abe
 #PBS -V
