@@ -3,7 +3,7 @@ import os
 import numpy as np
 import cPickle as pkl
 
-datapath = os.path.expanduser('~/storage/bird_data/movie/') 
+datapath = os.path.expanduser('../../data/movie/') 
 user = pd.read_csv(datapath + 'u.user', sep='|', names=['id', 'age', 'gender', 'prof', 'zip'])
 
 age = np.array(user['age'])

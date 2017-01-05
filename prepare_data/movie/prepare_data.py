@@ -3,43 +3,30 @@ import os
 import cPickle as pkl
 from scipy import sparse
 import sys
-sys.path.append('../')
-from separate_sets import write_file_for_pemb
 
-def save_data(savename, covname, obsmat, obscov, index):
-    submat = obsmat[index, :]
-    subcov = obscov[index, :]
-    write_file_for_pemb(submat, savename)
-    np.savetxt(covname, subcov, fmt='%.3f')
+def save_data(savename, obsmat, obscov, index):
+    reviews = dict(scores=obsmat[index, :], atts=obscov[index, :])
+    pkl.dump(reviews, open(savename, 'wb'))
 
-def stratify_data(obsmat, obscov, frac=[0.6, 0.1, 0.3], fold=0):
+def stratify_data(obsmat, obscov, frac=0.7, fold=0):
 
     n = obsmat.shape[0]
-    ntrain = int(n * frac[0])
-    nvalid = int(n * frac[1])
-    ntest = int(n * frac[2])
+    ntrain = int(n * frac)
+    ntest = n - ntrain 
 
     randperm = np.random.choice(n, size=n, replace=False)
     
     index = randperm[0:ntrain]
-    savename = datapath + 'data_folds/%d/train.tsv' % fold
-    covname = datapath + 'data_folds/%d/obscov_train.csv' % fold
-    save_data(savename, covname, obsmat, obscov, index)
+    savename = datapath + 'splits/train%d.pkl' % fold
+    save_data(savename, obsmat, obscov, index)
     
-    index = randperm[ntrain:(ntrain + nvalid)]
-    loadname = datapath + 'validation.tsv'
-    savename = datapath + 'data_folds/%d/validation.tsv' % fold
-    covname = datapath + 'data_folds/%d/obscov_valid.csv' % fold
-    save_data(savename, covname, obsmat, obscov, index)
-
-    index = randperm[(ntrain + nvalid):]
-    savename = datapath + 'data_folds/%d/test.tsv' % fold
-    covname = datapath + 'data_folds/%d/obscov_test.csv' % fold
-    save_data(savename, covname, obsmat, obscov, index)
+    index = randperm[ntrain:]
+    savename = datapath + 'splits/test%d.pkl' % fold
+    save_data(savename, obsmat, obscov, index)
     
 
 # load from pemb data
-datapath = os.path.expanduser('~/storage/bird_data/movie/')
+datapath = os.path.expanduser('../../data/movie/')
 train = np.loadtxt(datapath + 'train.tsv')
 test = np.loadtxt(datapath + 'test.tsv')
 valid = np.loadtxt(datapath + 'validation.tsv')
@@ -67,5 +54,5 @@ obscov = feature[user_id.astype(int) - 1, :]
 print(obscov.shape)
 
 for ifold in xrange(10):
-    stratify_data(obsmat, obscov, frac=[0.6, 0.1, 0.3], fold=ifold)
+    stratify_data(obsmat, obscov, frac=0.7, fold=ifold)
 

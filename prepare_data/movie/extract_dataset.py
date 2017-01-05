@@ -4,7 +4,7 @@ import scipy.sparse as sparse
 import cPickle as pkl
 
 dataset = 'movie'
-data_path = '~/storage/sa-data/' + dataset + '/'
+data_path = '../../data/' + dataset + '/'
 data_path = os.path.expanduser(data_path)
 
 dfile = data_path + 'u.data'
@@ -15,6 +15,14 @@ data[:, 2] = data[:, 2] - 2
 data[data[:, 2] < 0, 2] = 0
 data[:, 2] = data[:, 2] + 1
 
+print(np.sum(data[:, 2] == 0))
+print(np.sum(data[:, 2] == 1))
+print(np.sum(data[:, 2] == 2))
+print(np.sum(data[:, 2] == 3))
+print(np.sum(data[:, 2] == 4))
+print(np.sum(data[:, 2] == 5))
+
+raise Exception()
 
 
 #order = np.argsort(data[:, 0])
