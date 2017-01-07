@@ -16,6 +16,7 @@ from util import config_to_name
 
 from movie_model import generate_batch
 from movie_model import fit_emb
+from movie_model import evaluate_emb
 
 # Step 1: load data
 
