@@ -30,31 +30,32 @@ def fit_emb(reviews, config, init_model):
 
         inputs, outputs, model_param = construct_model_graph(reviews, config, init_model, training=True)
 
-        optimizer = tf.train.AdagradOptimizer(0.2).minimize(outputs['objective'])
+        optimizer = tf.train.AdagradOptimizer(0.1).minimize(outputs['objective'])
         init = tf.initialize_all_variables()
 
     with tf.Session(graph=graph) as session:
         # We must initialize all variables before we use them.
         init.run()
 
-        loss_logg = np.zeros(config['max_iter']) 
+        loss_logg = np.zeros([config['max_iter'], 2]) 
+        review_size = reviews['scores'].shape[0]
         for step in xrange(1, config['max_iter'] + 1):
 
-            rind = np.random.choice(len(reviews))
+            rind = np.random.choice(review_size)
             atts, indices, labels = generate_batch(reviews, rind)
             feed_dict = {inputs['input_att']: atts, inputs['input_ind']: indices, inputs['input_label']: labels}
 
-            _, llh_val = session.run((optimizer, outputs['llh']), feed_dict=feed_dict)
-            loss_logg[step - 1] = llh_val
+            _, llh_val, obj_val, debug_val = session.run((optimizer, outputs['llh'], outputs['objective'], outputs['debugv']), feed_dict=feed_dict)
+            loss_logg[step - 1, :] = np.array([llh_val, obj_val])
 
             # print loss every 2000 iterations
-            nprint = 1000
-            if step % nprint == 0 or np.isnan(llh_val):
+            nprint = 5000
+            if step % nprint == 0 or np.isnan(llh_val) or (llh_val > 0):
                 
-                avg_llh = np.mean(loss_logg[step - nprint : step])
-                print("iteration[", step, "]: average llh is ", avg_llh)
+                avg_val = np.mean(loss_logg[step - nprint : step], axis=0)
+                print("iteration[", step, "]: average llh and obj are ", avg_val, ' debug value is ', debug_val)
                 
-                if np.isnan(llh_val):
+                if np.isnan(llh_val) or (llh_val > 0):
                     debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
                     print('Loss value is NaN, and the debug value is ', debug_val)
                     raise Exception('NaN values')
@@ -114,11 +115,12 @@ def logprob_zero(context_emb, rho, input_ind, input_att, weight, invmu, config, 
     if config['exposure']:
         logits = tf.gather(invmu, sind)
         if config['use_sideinfo']:
-            logits = logits + tf.reduce_sum(tf.gather(weight, sind) * input_att, 1)
+            logits = logits + tf.reduce_sum(tf.gather(weight, sind) * tf.expand_dims(input_att, 0), 1)
         
         log_nobs_prob = - tf.nn.softplus(logits) 
+        log_obs_prob = - tf.nn.softplus(-logits) 
         
-        logprob = logsumexp(logprob_z, log_nobs_prob)
+        logprob = logsumexp(log_obs_prob + logprob_z, log_nobs_prob)
 
     else:
         logprob = logprob_z
@@ -128,7 +130,7 @@ def logprob_zero(context_emb, rho, input_ind, input_att, weight, invmu, config, 
     else:
         noisy_logprob_sum = tf.reduce_sum(logprob)
     
-    return noisy_logprob_sum, logprob, sind
+    return noisy_logprob_sum, logprob, sind, []
 
 def gammaln(x):
     # fast approximate gammaln from paul mineiro
@@ -148,7 +150,7 @@ def logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rat
     if config['exposure']:
         logits = tf.gather(invmu, input_ind)
         if config['use_sideinfo']:
-            logits = logits + tf.reduce_sum(tf.gather(weight, input_ind) * input_att, 1)
+            logits = logits + tf.reduce_sum(tf.gather(weight, input_ind) * tf.expand_dims(input_att, 0), 1)
         
         log_obs_prob = - tf.nn.softplus(- logits) 
         
@@ -159,7 +161,7 @@ def logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rat
     
     logprob_sum = tf.reduce_sum(logprob)
     
-    return logprob_sum, logprob, [tf.gather(rate, [1]), tf.gather(lamb_nz, [1]), tf.gather(logprob_nz, [1])] 
+    return logprob_sum, logprob, [] 
 
 
 
@@ -178,7 +180,7 @@ def construct_model_graph(reviews, config, init_model=None, training=True):
             weight = tf.Variable(tf.zeros([movie_size, dim_atts]))
             alpha = tf.Variable(tf.random_uniform([movie_size, embedding_size], -1, 1))
             rho = tf.Variable(tf.truncated_normal([movie_size, embedding_size],stddev=1))
-            invmu = tf.Variable(tf.ones(movie_size) * 10)
+            invmu = tf.Variable(tf.random_uniform([movie_size], -1, 1))
         else:
             alpha  = tf.Variable(init_model['alpha'])
             invmu  = tf.Variable(init_model['invmu'])
@@ -201,11 +203,11 @@ def construct_model_graph(reviews, config, init_model=None, training=True):
     alpha_weighted = alpha_select * tf.expand_dims(rate, 1)
     alpha_sum = tf.reduce_sum(alpha_weighted, keep_dims=True, reduction_indices=0)
 
-    z_logp, z_insprob, sind = logprob_zero(alpha_sum / nnz, rho, input_ind, input_att, weight, invmu, config, input_label, training=training)
+    z_logp, z_insprob, sind, debug = logprob_zero(alpha_sum / nnz, rho, input_ind, input_att, weight, invmu, config, input_label, training=training)
 
     alpha_emb = (alpha_sum - alpha_select) / (nnz - 1) 
     rho_select = tf.gather(rho, input_ind)
-    nz_logp, nz_insprob, debug = logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=training)
+    nz_logp, nz_insprob, _ = logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=training)
 
     llh = z_logp + nz_logp
     if training:
