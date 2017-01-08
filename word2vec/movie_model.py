@@ -15,11 +15,6 @@ def get_problem_sizes(reviews, config):
     movie_size = reviews['scores'].shape[1]
     dim_atts = reviews['atts'].shape[1]
     
-    #if config['exposure'] and config['use_sideinfo']:
-    #    dim_atts = reviews['atts'].shape[1]
-    #else:
-    #    dim_atts = 0 
-
     return review_size, movie_size, dim_atts
 
 # config = dict(K=K, voc_size=voc_size, use_sideinfo=use_sideinfo, half_window=half_window)
@@ -89,8 +84,7 @@ def evaluate_emb(reviews, model, config):
             ins_llh_val = session.run(outputs['ins_llh'], feed_dict=feed_dict)
             loss_array.append(ins_llh_val)
             
-            if step % 5000 == 0:
-                print("Loss mean and std at step ", step, ": ", np.mean(np.concatenate(loss_array)), np.std(np.concatenate(loss_array)))
+        print("Loss mean and std: ", np.mean(np.concatenate(loss_array)), np.std(np.concatenate(loss_array)))
         
         return loss_array
 
@@ -108,9 +102,14 @@ def logprob_zero(context_emb, rho, input_ind, input_att, weight, invmu, config, 
         sind = tf.gather(tf.random_shuffle(sind), tf.range(nsample))
 
     rho_z = tf.gather(rho, sind) 
-    lamb_z = tf.nn.softplus(tf.reduce_sum(rho_z * context_emb, reduction_indices=1)) + 1e-6
 
-    logprob_z = - lamb_z 
+    # poisson distribution
+    #lamb_z = tf.nn.softplus(tf.reduce_sum(rho_z * context_emb, reduction_indices=1)) + 1e-6
+    #logprob_z = - lamb_z 
+
+    # binomial distribution
+    rlog = tf.reduce_sum(rho_z * context_emb, reduction_indices=1)
+    logprob_z  = - 3.0 * tf.nn.softplus(rlog)
 
     if config['exposure']:
         logits = tf.gather(invmu, sind)
@@ -141,11 +140,15 @@ def gammaln(x):
 
 def logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=True):
 
-    #movie_size = int(rho.get_shape()[0])
-    lamb_nz = tf.nn.softplus(tf.reduce_sum(rho_select * alpha_emb, reduction_indices=1)) + 1e-6
-    
+    # poisson distribuiton
+    #lamb_nz = tf.nn.softplus(tf.reduce_sum(rho_select * alpha_emb, reduction_indices=1)) + 1e-6
+    #logprob_nz = rate * tf.log(lamb_nz) - lamb_nz - gammaln(rate + 1.0)
 
-    logprob_nz = rate * tf.log(lamb_nz) - lamb_nz - gammaln(rate + 1.0)
+    # binomial distribution
+    rlog = tf.reduce_sum(rho_select * alpha_emb, reduction_indices=1)
+    logminusprob = - tf.nn.softplus(rlog)
+    logplusprob = - tf.nn.softplus(- rlog)
+    logprob_nz = np.log(6.0) - gammaln(rate + 1.0) - gammaln(4.0 - rate) + rate * logplusprob + (3.0 - rate) * logminusprob
 
     if config['exposure']:
         logits = tf.gather(invmu, input_ind)
@@ -237,6 +240,7 @@ def logsumexp(vec1, vec2):
 
 def generate_batch(reviews, rind):
     atts = reviews['atts'][rind, :]
+    atts = atts
     _, ind, rate = sparse.find(reviews['scores'][rind, :])
     return atts, ind, rate 
 
