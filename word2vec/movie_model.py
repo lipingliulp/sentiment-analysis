@@ -45,15 +45,15 @@ def fit_emb(reviews, config, init_model):
 
             # print loss every 2000 iterations
             nprint = 5000
-            if step % nprint == 0 or np.isnan(llh_val) or (llh_val > 0):
+            if step % nprint == 0 or np.isnan(llh_val) or np.isinf(llh_val):
                 
                 avg_val = np.mean(loss_logg[step - nprint : step], axis=0)
                 print("iteration[", step, "]: average llh and obj are ", avg_val, ' debug value is ', debug_val)
                 
-                if np.isnan(llh_val) or (llh_val > 0):
+                if np.isnan(llh_val) or np.isinf(llh_val):
                     debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
-                    print('Loss value is NaN, and the debug value is ', debug_val)
-                    raise Exception('NaN values')
+                    print('Loss value is ', llh_val, ', and the debug value is ', debug_val)
+                    raise Exception('Bad values')
     
         # save model parameters to dict
         model = dict(alpha=model_param['alpha'].eval(), 
@@ -129,7 +129,7 @@ def logprob_zero(context_emb, rho, input_ind, input_att, weight, invmu, config, 
     else:
         noisy_logprob_sum = tf.reduce_sum(logprob)
     
-    return noisy_logprob_sum, logprob, sind, []
+    return noisy_logprob_sum, logprob, sind, [tf.reduce_min(logprob_z), tf.reduce_max(logprob_z)]
 
 def gammaln(x):
     # fast approximate gammaln from paul mineiro
@@ -164,7 +164,7 @@ def logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rat
     
     logprob_sum = tf.reduce_sum(logprob)
     
-    return logprob_sum, logprob, [] 
+    return logprob_sum, logprob, []
 
 
 
@@ -206,11 +206,11 @@ def construct_model_graph(reviews, config, init_model=None, training=True):
     alpha_weighted = alpha_select * tf.expand_dims(rate, 1)
     alpha_sum = tf.reduce_sum(alpha_weighted, keep_dims=True, reduction_indices=0)
 
-    z_logp, z_insprob, sind, debug = logprob_zero(alpha_sum / nnz, rho, input_ind, input_att, weight, invmu, config, input_label, training=training)
+    z_logp, z_insprob, sind, _ = logprob_zero(alpha_sum / nnz, rho, input_ind, input_att, weight, invmu, config, input_label, training=training)
 
     alpha_emb = (alpha_sum - alpha_select) / (nnz - 1) 
     rho_select = tf.gather(rho, input_ind)
-    nz_logp, nz_insprob, _ = logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=training)
+    nz_logp, nz_insprob, debug = logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=training)
 
     llh = z_logp + nz_logp
     if training:
@@ -240,7 +240,6 @@ def logsumexp(vec1, vec2):
 
 def generate_batch(reviews, rind):
     atts = reviews['atts'][rind, :]
-    atts = atts
     _, ind, rate = sparse.find(reviews['scores'][rind, :])
     return atts, ind, rate 
 
