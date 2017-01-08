@@ -40,4 +40,13 @@ def plot_with_labels(low_dim_embs, labels, filename='tsne.png'):
 
     plt.savefig(filename)
 
+def npgammaln(x):
+    # fast approximate gammaln from paul mineiro
+    # http://www.machinedlearnings.com/2011/06/faster-lda.html
+    logterm = np.log (x * (1.0 + x) * (2.0 + x))
+    xp3 = 3.0 + x
+    return -2.081061466 - x + 0.0833333 / xp3 - logterm + (2.5 + x) * np.log (xp3)
+
+
+
 
