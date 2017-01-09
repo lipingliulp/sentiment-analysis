@@ -104,16 +104,18 @@ def evaluate_emb(reviews, model, config):
         init.run()
 
         loss_array = [] 
+        pos_loss_array = [] 
         review_size = reviews['scores'].shape[0]
         for step in xrange(review_size):
             att, index, label = generate_batch(reviews, step)
             feed_dict = {inputs['input_att']: att, inputs['input_ind']: index, inputs['input_label']: label}
-            ins_llh_val = session.run(outputs['ins_llh'], feed_dict=feed_dict)
+            ins_llh_val, pos_llh_val = session.run((outputs['ins_llh'], outputs['pos_llh']), feed_dict=feed_dict)
             loss_array.append(ins_llh_val)
-            
-        print("Loss mean and std: ", np.mean(np.concatenate(loss_array)), np.std(np.concatenate(loss_array)))
+            pos_loss_array.append(pos_llh_val)
         
-        return loss_array
+        print("Loss and pos_loss mean: ", np.mean(np.concatenate(loss_array)), np.mean(np.concatenate(pos_loss_array)))
+        
+        return loss_array, pos_loss_array
 
 def logprob_zero(context_emb, rho, input_ind, input_att, weight, invmu, config, input_label, training):
 
@@ -191,7 +193,7 @@ def logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rat
     
     logprob_sum = tf.reduce_sum(logprob)
     
-    return logprob_sum, logprob, []
+    return logprob_sum, logprob, logprob_nz, []
 
 def construct_model_graph(reviews, config, init_model=None, training=True):
 
@@ -235,7 +237,7 @@ def construct_model_graph(reviews, config, init_model=None, training=True):
 
     alpha_emb = (alpha_sum - alpha_select) / (nnz - 1) 
     rho_select = tf.gather(rho, input_ind)
-    nz_logp, nz_insprob, debug = logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=training)
+    nz_logp, nz_insprob, emb_logprob, debug = logprob_nonz(alpha_emb, rho_select, input_ind, input_att, weight, invmu, rate, config, training=training)
 
     llh = z_logp + nz_logp
     if training:
@@ -257,7 +259,7 @@ def construct_model_graph(reviews, config, init_model=None, training=True):
     objective = regularizer * config['reg_weight'] - llh 
 
     inputs = {'input_att': input_att, 'input_ind': input_ind, 'input_label': input_label} 
-    outputs = {'objective': objective, 'llh': llh, 'ins_llh': ins_llh, 'debugv': debug}
+    outputs = {'objective': objective, 'llh': llh, 'ins_llh': ins_llh, 'pos_llh': emb_logprob, 'debugv': debug}
     model_param = {'alpha': alpha, 'rho': rho, 'weight': weight, 'invmu': invmu}
 
     return inputs, outputs, model_param 
