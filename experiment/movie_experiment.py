@@ -27,7 +27,7 @@ def movie_experiment(config):
     dataset = 'movie'
     data_path = '/rigel/dsi/users/ll3105/sa-data/' + dataset + '/'
     
-    trfile = data_path + '/splits/train0.pkl'
+    trfile = data_path + '/splits/train%d.pkl' % config['fold']
     trainset = pickle.load(open(trfile, 'rb'))
     print('Overall %d reviews' % len(trainset))
     
@@ -48,14 +48,14 @@ def movie_experiment(config):
     
     emb_model, logg = fit_emb(trainset, config, init_model)
     
-    tsfile = data_path + '/splits/test0.pkl'
+    tsfile = data_path + '/splits/test%d.pkl' % config['fold']
     testset = pickle.load(open(tsfile, 'rb'))
     print('Overall %d reviews' % len(testset))
     
-    loss_array = evaluate_emb(testset, emb_model, config)
+    loss_array, pos_loss_array = evaluate_emb(testset, emb_model, config)
     # Step 4: Save result and Visualize the embeddings.
     mfile = config_to_name(config) + '.pkl'
-    pickle.dump(dict(model=emb_model, logg=logg, loss_array=loss_array), open(data_path + 'splits/' + mfile, "wb"))
+    pickle.dump(dict(model=emb_model, logg=logg, loss_array=loss_array, pos_loss_array=pos_loss_array), open(data_path + 'splits/' + mfile, "wb"))
 
     print('Training done!')
 
