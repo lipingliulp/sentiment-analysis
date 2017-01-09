@@ -9,8 +9,7 @@ import collections
 from scipy import sparse
 import sys
 
-def separate_valid(reviews):
-    frac = 0.1
+def separate_valid(reviews, frac):
     review_size = reviews['scores'].shape[0]
     vind = np.random.choice(review_size, int(frac * review_size), replace=False)
     tind = np.delete(np.arange(review_size), vind)
@@ -19,10 +18,6 @@ def separate_valid(reviews):
     validset = dict(scores=reviews['scores'][vind, :], atts=reviews['atts'][vind])
     
     return trainset, validset
-    
-
-
-
 
 
 def get_problem_sizes(reviews, config):
@@ -35,7 +30,9 @@ def get_problem_sizes(reviews, config):
 # config = dict(K=K, voc_size=voc_size, use_sideinfo=use_sideinfo, half_window=half_window)
 def fit_emb(reviews, config, init_model):
 
-    reviews, valid_reviews = separate_valid(reviews)
+    use_valid_set = False
+    if use_valid_set:
+        reviews, valid_reviews = separate_valid(reviews, 0.1)
 
     graph = tf.Graph()
     with graph.as_default():
@@ -65,19 +62,20 @@ def fit_emb(reviews, config, init_model):
             nprint = 5000
             if step % nprint == 0 or np.isnan(llh_val) or np.isinf(llh_val):
                 
-
-                valid_size = valid_reviews['scores'].shape[0]
-                llh_sum = 0
-                for iv in xrange(valid_size): 
-                    atts, indices, labels = generate_batch(valid_reviews, iv)
-                    feed_dict = {inputs['input_att']: atts, inputs['input_ind']: indices, inputs['input_label']: labels}
-                    llh_val = session.run((outputs['llh']), feed_dict=feed_dict)
-                    llh_sum = llh_sum + llh_val
-  
-                valid_llh = llh_sum / valid_size
+                valid_msg = ''
+                if use_valid_set:
+                    llh_sum = 0
+                    valid_size = valid_reviews['scores'].shape[0]
+                    for iv in xrange(valid_size): 
+                        atts, indices, labels = generate_batch(valid_reviews, iv)
+                        feed_dict = {inputs['input_att']: atts, inputs['input_ind']: indices, inputs['input_label']: labels}
+                        llh_val = session.run((outputs['llh']), feed_dict=feed_dict)
+                        llh_sum = llh_sum + llh_val
+                    valid_llh = llh_sum / valid_size
+                    valid_msg = ' validation llh is %.3f' % valid_llh
                 
                 avg_val = np.mean(loss_logg[step - nprint : step], axis=0)
-                print("iteration[", step, "]: average llh and obj are ", avg_val, ' validation llh is ', valid_llh)
+                print("iteration[", step, "]: average llh and obj are ", avg_val, valid_msg)
                 
                 if np.isnan(llh_val) or np.isinf(llh_val):
                     debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
@@ -252,7 +250,7 @@ def construct_model_graph(reviews, config, init_model=None, training=True):
                   * (0.5 * movie_size / (nnz * float(review_size)))
     
     if config['use_sideinfo']:
-        wreg = 100000.0 * tf.reduce_sum(tf.square(tf.gather(weight, input_ind))) \
+        wreg = tf.reduce_sum(tf.square(tf.gather(weight, input_ind))) \
                * (0.5 * movie_size / (nnz * float(review_size)))
         regularizer = regularizer + wreg
 
