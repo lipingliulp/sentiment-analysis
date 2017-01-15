@@ -73,7 +73,7 @@ def fit_emb(reviews, config, init_model):
                 print("iteration[", step, "]: average llh and obj are ", avg_val, valid_msg)
                 
                 if np.isnan(llh_val) or np.isinf(llh_val):
-                    debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
+                    #debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
                     print('Loss value is ', llh_val, ', and the debug value is ', debug_val)
                     raise Exception('Bad values')
     
@@ -81,7 +81,8 @@ def fit_emb(reviews, config, init_model):
         model = dict(alpha=model_param['alpha'].eval(), 
                        rho=model_param['rho'].eval(), 
                      invmu=model_param['invmu'].eval(), 
-                    weight=model_param['weight'].eval())
+                    weight=model_param['weight'].eval(), 
+                       nbr=model_param['nbr'].eval())
 
         return model, loss_logg
 
