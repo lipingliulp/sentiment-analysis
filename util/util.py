@@ -20,8 +20,13 @@ def build_dictionary(words, vocabulary_size):
     reverse_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return count, dictionary, reverse_dictionary
 
-def config_to_name(config):
-    name = str(config).replace("{", "").replace("}", "").replace(" ", "").replace("'", "").replace(":", "=").replace(',', ".") 
+def config_to_name(config, fixorder=True):
+    keys = config.keys()
+    keys.sort()
+    name = ''
+    for key in keys:
+        name = name + '.' + key + '=' + str(config[key])
+    name = name[1:]
     return name 
 
 
