@@ -6,7 +6,7 @@ import cPickle as pickle
 
 data_path = '../../data/'
 dataset = 'wikipedia'
-files = ['tagged.en/englishEtiquetado_' + str(ind * 10000) + '_' + str(ind * 10000 + 10000) for ind in xrange(10)]
+files = ['tagged.en/englishEtiquetado_' + str(ind * 10000) + '_' + str(ind * 10000 + 10000) for ind in xrange(0, 100)]
 
 wiki_dict = pickle.load(open(data_path + dataset + '/voc_dict.pkl', "rb"))
 dictionary = wiki_dict['dic']
@@ -17,65 +17,91 @@ from freeling_tags_dict import reducing_dict
 reduced_tags = list(set(reducing_dict.values()))
 
 tag_dict = reducing_dict.copy()
+simple_tag_dict = dict()
 for tag in tag_dict.keys():
     rtag = reducing_dict[tag]
-    tag_dict[tag] = reduced_tags.index(rtag) 
+    itag = reduced_tags.index(rtag)
+    tag_dict[tag] = itag  
+    simple_tag_dict.update({rtag: itag})
+
+ipunc = simple_tag_dict['punctuation']
 
 print(tag_dict)
-counter = np.zeros([len(tag_dict), len(tag_dict)])
+print(simple_tag_dict)
+pickle.dump(simple_tag_dict, open(data_path + dataset + '/simple_tag_dict.pkl', 'wb'))
 
-itag0 = -1
-itag1 = -1
-itag2 = -1
+
+key_words = ['computer', 'programming', 'software', 'hardware', 'cpu', 'compiler', 'algorithm', 'statistics']
+def line_to_pair(tokens):
+    word = tokens[0].lower()
+    tag = tokens[2]
+    
+    return word, tag
 
 docs = []
 doc = []
 for filename in files:
+    print('number of docs %d' % len(docs))
+    print('processing file ' + filename + '...')
+
     with open(data_path + dataset + '/' + filename, mode='r') as txtfile:
+        
         while True:
             line = txtfile.readline()
             if line == '':
                 # end of the file 
                 break
-            if line == '\n':
-                # end of a sentence
-                itag0 = -1
-                itag1 = -1
-                itag2 = -1
-                continue
 
-            if line.startswith('</doc>') or line.startswith('<doc ') or line == 'f':
-                # start of a new document. reset the recorder of the document
-                if len(doc) > 0:
-                    docs.append(np.array(doc))
-                    doc = [] 
-                continue
-            
-            tokens = line.split()
+            if line.startswith('<doc '): # a new document
+                doc_id = line
+                # read a single doc
+                doc = [] 
+                while True:
+                    line = txtfile.readline()
+                    if line == '\n':
+                        continue
+                    if line.startswith('</doc>') or line == 'f':
+                        # end of a document
+                        break
 
-            word = tokens[0].lower()
-            if word in dictionary:
-                iword = dictionary[word]
+                    tokens = line.split()
+                    if len(tokens) < 3: # the bad line at the end of file
+                        break
+
+                    (word, tag) = line_to_pair(tokens)
+                    if not (word in ['endofarticle']): # remove some bad words
+                        doc.append((word, tag))
+                
+                if len(doc) <= 2: # bad doc
+                    print('short doc' + doc_id)
+                    print(doc)
+                    continue 
+                
+                flag_cs = False
+                for (word, tag) in doc:
+                    if word in key_words:
+                        flag_cs = True
+                        break
+                if flag_cs:
+                    adoc = np.zeros((len(doc), 2), dtype=np.int32)
+                    for i, (word, tag) in enumerate(doc):
+                        if word in dictionary:
+                            iword = dictionary[word]
+                        else:
+                            iword = 0
+                        itag = tag_dict[tag] 
+                        adoc[i, 0] = iword
+                        adoc[i, 1] = itag
+
+                    pflag = adoc[:, 0] != ipunc # remove punctuations
+                    adoc = adoc[pflag, :]
+                    docs.append(adoc)
+                else:
+                    pass
             else:
-                iword = 0
+                print('bad line ' + line)
+                raise Exception
 
-            tag = tokens[2]
-            itag = tag_dict[tag] 
-
-            doc.append([iword, itag])
-
-            itag0 = itag1
-            itag1 = itag2
-            itag2 = itag
-            if itag0 > 0 and itag2 > 0:
-                counter[itag0, itag2] = counter[itag0, itag2] + 1
-
-if len(doc) > 0:
-    # record the last document if there is one
-    docs.append(np.array(doc))
-    doc = []
-
-#np.savetxt('pair_cooccur.csv', counter)
 
 print('number of documents is %d' % len(docs))
 
