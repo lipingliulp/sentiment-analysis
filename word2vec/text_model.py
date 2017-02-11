@@ -135,7 +135,8 @@ def generate_batch(reviews, rind):
     context_ind = np.tile(context_ind, [batch_size, 1]) + np.arange(0, batch_size)[:, None]
     context = text[context_ind] 
 
-    preceding_tags = tags[label_ind - 1]
+    # each word is paired with the tag of its preceding word
+    preceding_tags = tags[label_ind]
 
     return words, context, preceding_tags 
 
