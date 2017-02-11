@@ -20,12 +20,26 @@ def separate_valid(reviews, frac):
     
     return trainset, validset
 
+def calculate_similarity(embeddings, valid_dataset):
+    norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
+    normalized_embeddings = embeddings / norm
+    valid_embeddings = tf.nn.embedding_lookup(
+        normalized_embeddings, valid_dataset)
+    similarity = tf.matmul(
+        valid_embeddings, normalized_embeddings, transpose_b=True)
+    
+    return similarity
+
+
 # config = dict(K=K, voc_size=voc_size, use_sideinfo=use_sideinfo, half_window=half_window)
-def fit_emb(reviews, config, init_model):
+def fit_emb(reviews, config, init_model, reverse_dictionary):
 
     use_valid_set = False
     if use_valid_set:
         reviews, valid_reviews = separate_valid(reviews, 0.1)
+
+    check_size = 20
+    check_words = np.random.choice(len(reverse_dictionary), check_size, replace=False)
 
     graph = tf.Graph()
     with graph.as_default():
@@ -33,6 +47,7 @@ def fit_emb(reviews, config, init_model):
         
         builder = GraphBuilder()
         inputs, outputs, model_param = builder.construct_model_graph(reviews, config, init_model, training=True)
+        similarity = calculate_similarity(model_param['rho'], tf.constant(check_words)) 
 
         optimizer = tf.train.AdagradOptimizer(1).minimize(outputs['objective'])
         init = tf.initialize_all_variables()
@@ -53,7 +68,7 @@ def fit_emb(reviews, config, init_model):
             loss_logg[step - 1, :] = np.array([llh_val, obj_val])
 
             # print loss every 2000 iterations
-            nprint = 5000
+            nprint = 10
             if step % nprint == 0 or np.isnan(llh_val) or np.isinf(llh_val):
                 
                 valid_msg = ''
@@ -69,13 +84,27 @@ def fit_emb(reviews, config, init_model):
                     valid_msg = ' validation llh is %.3f' % valid_llh
                 
                 avg_val = np.mean(loss_logg[step - nprint : step], axis=0)
-                print("iteration[", step, "]: average llh and obj are ", avg_val, valid_msg)
+                print("iteration[", step, "]: average llh, obj and debugv are ", avg_val, debug_val, valid_msg)
                 
                 if np.isnan(llh_val) or np.isinf(llh_val):
                     #debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
                     print('Loss value is ', llh_val, ', and the debug value is ', debug_val)
                     raise Exception('Bad values')
     
+            if step % 20000 == 0: 
+                print('----------------------------------------------------------------------')
+                sim = similarity.eval()
+                for i in xrange(check_size):
+                    word = reverse_dictionary[check_words[i]]
+                    top_k = 8  # number of nearest neighbors
+                    nearest = (-sim[i, :]).argsort()[1:top_k + 1]
+                    log_str = "Nearest to %s:" % word
+                    for k in xrange(top_k):
+                        close_word = reverse_dictionary[nearest[k]]
+                        log_str = "%s %s," % (log_str, close_word)
+
+                    print(log_str)
+                
         # save model parameters to dict
         model = dict(alpha=model_param['alpha'].eval(), 
                        rho=model_param['rho'].eval(), 
