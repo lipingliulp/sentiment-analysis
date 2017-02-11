@@ -110,10 +110,10 @@ class GraphBuilder:
         sum_llh_nonz = tf.reduce_sum(llh_nonz)
         sum_llh_fake_zero = tf.reduce_sum(llh_nonz)
 
-        llh_zero, sind, debug = self.logprob_zero(alpha_sum, config=config, training=training)
+        llh_zero, sind, _ = self.logprob_zero(alpha_sum, config=config, training=training)
         mean_llh_zero = tf.reduce_mean(llh_zero)
         
-
+        debug = []
         ## combine logprob of single instances
         #if not training:
         #    ins_logprob = tf.concat(0, [llh_zero, llh_nonz])
@@ -121,7 +121,7 @@ class GraphBuilder:
         #    ins_llh = tf.scatter_update(tf.Variable(tf.zeros(voc_size)), ins_ind, ins_logprob)
         #    sum_llh = tf.reduce_sum(llh_nonz) + tf.reduce_sum(llh_zero) 
         #else:
-        sum_llh = sum_llh_nonz + (mean_llh_zero * batch_size * float(voc_size) - sum_llh_fake_zero) / 1000
+        sum_llh = sum_llh_nonz + (mean_llh_zero * batch_size * float(voc_size) - sum_llh_fake_zero) / 10000
         ins_llh = sum_llh 
         #raise  Exception('Do not use "training" option for text')
     
