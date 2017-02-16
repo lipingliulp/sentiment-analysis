@@ -29,16 +29,28 @@ class GraphBuilder:
             logminusprob = - tf.nn.softplus(emb)
             logplusprob = - tf.nn.softplus(- emb)
             logprob_nz = np.log(6.0) - self.gammaln(rate + 1.0) - self.gammaln(4.0 - rate) + rate * logplusprob + (3.0 - rate) * logminusprob
+            logprob_z  = 3.0 * logminusprob 
+
+            log_mean = logplusprob 
 
         elif config['dist'] == 'poisson':
             lamb = tf.nn.softplus(emb) + 1e-6
             logprob_nz = - self.gammaln(rate + 1.0) + rate * tf.log(lamb) - lamb 
+            logprob_z = - lamb 
+
+            log_mean = tf.log(lamb)
 
         elif config['dist'] == 'negbin':
             nbr_select = tf.gather(self.nbr, self.input_ind)
             mu = tf.nn.softplus(emb) + 1e-6
             logprob_nz = self.gammaln(rate + nbr_select) - self.gammaln(rate + 1.0) -  self.gammaln(nbr_select) + \
                          nbr_select * tf.log(nbr_select) + rate * tf.log(mu) - (nbr_select + rate) * tf.log(nbr_select + mu)
+
+            logprob_z = nbr_select * tf.log(nbr_select) - nbr_select * tf.log(nbr_select + mu)
+
+            log_mean = tf.log(mu)
+
+
         else:
             raise Exception('The distribution "' + config['dist'] + '" is not defined in the model')
              
@@ -52,7 +64,7 @@ class GraphBuilder:
         else:
             logprob = logprob_nz
         
-        return logprob, logprob_nz, []
+        return logprob, logprob_nz, logprob_z, log_mean 
 
 
     def logprob_zero(self, context_emb, config, training):
@@ -95,7 +107,7 @@ class GraphBuilder:
         if config['exposure']:
             logits = tf.gather(self.invmu, sind)
             if config['use_sideinfo']:
-                logits = logits + tf.reduce_sum(weight_z * tf.expand_dims(input_att, 0), 1)
+                logits = logits + tf.reduce_sum(weight_z * tf.expand_dims(self.input_att, 0), 1)
             
             log_nobs_prob = - tf.nn.softplus(logits) 
             log_obs_prob = - tf.nn.softplus(-logits) 
@@ -104,10 +116,7 @@ class GraphBuilder:
         else:
             logprob = logprob_z
     
-        return logprob, sind, []
-
-
-
+        return logprob, sind, [tf.reduce_mean(logprob_z)]
 
 
     def construct_model_graph(self, reviews, config, init_model=None, training=True):
@@ -127,23 +136,37 @@ class GraphBuilder:
         asum_zero = alpha_sum / nnz 
         asum_nonz = (alpha_sum - alpha_select) / (nnz - 1) 
     
-        llh_zero, sind, debug = self.logprob_zero(asum_zero, config=config, training=training)
-        llh_nonz, emb_logp, _ = self.logprob_nonz(asum_nonz, config=config, training=training)
-        
+        llh_zero, sind, _ = self.logprob_zero(asum_zero, config=config, training=training)
+        llh_nonz, emb_logp_nz, emb_logp_z, log_mean = self.logprob_nonz(asum_nonz, config=config, training=training)
+        debug = tf.exp(log_mean) 
+       
         # combine logprob of single instances
-        if not training:
+        if training:
+            if config['zeroweight'] > 0.0:
+                sum_llh = tf.reduce_sum(llh_nonz) \
+                        + tf.reduce_mean(llh_zero) * ((float(movie_size) - nnz) * config['zeroweight'])
+                                              # scale back as if all each zero entries are included
+            elif config['zeroweight'] == 0.0:
+                sum_llh = tf.reduce_sum(llh_nonz) # if the weight for zero entries is zero, then just neglect them to save computation
+
+            ins_llh = None # training does not keep llh for each entry
+            pos_llh = None
+            mul_llh = None
+        else:
             ins_logprob = tf.concat(0, [llh_zero, llh_nonz])
             ins_ind = tf.concat(0, [sind, self.input_ind])
             ins_llh = tf.scatter_update(tf.Variable(tf.zeros(movie_size)), ins_ind, ins_logprob)
             sum_llh = tf.reduce_sum(llh_nonz) + tf.reduce_sum(llh_zero) 
-        else:
-            ins_llh = None
-            sum_llh = tf.reduce_sum(llh_nonz) + tf.reduce_mean(llh_zero) * (float(movie_size) - nnz)
-    
+
+            pos_llh = emb_logp_nz - tf.log(1 - tf.exp(emb_logp_z))
+
+            lab_prob = tf.cast(self.input_label, tf.float32)
+            lab_prob = lab_prob / tf.reduce_sum(lab_prob)
+            mul_llh = tf.nn.softmax_cross_entropy_with_logits(log_mean, lab_prob, dim=-1, name=None)
         
         # random choose weight vectors to get a noisy estimation of the regularization term
         rsize = int(movie_size * 0.1)
-        rind = tf.random_shuffle(np.arange(movie_size))[0 : rsize]
+        rind = tf.random_shuffle(tf.range(movie_size))[0 : rsize]
         regularizer = (tf.reduce_sum(tf.square(tf.gather(self.rho,   rind)))  \
                      + tf.reduce_sum(tf.square(tf.gather(self.alpha, rind)))) \
                       * (0.5 * movie_size / (config['ar_sigma2'] * rsize * review_size))
@@ -159,7 +182,7 @@ class GraphBuilder:
         objective = regularizer  - sum_llh  # the objective is an estimation of the llh of data divied by review_size
     
         inputs = {'input_att': self.input_att, 'input_ind': self.input_ind, 'input_label': self.input_label} 
-        outputs = {'objective': objective, 'llh': sum_llh, 'ins_llh': ins_llh, 'pos_llh': emb_logp, 'debugv': debug}
+        outputs = {'objective': objective, 'llh': sum_llh, 'ins_llh': ins_llh, 'pos_llh': pos_llh, 'mul_llh': mul_llh, 'debugv': debug}
         model_param = {'alpha': self.alpha, 'rho': self.rho, 'weight': self.weight, 'invmu': self.invmu, 'nbr': self.nbr}
     
         return inputs, outputs, model_param 
@@ -174,11 +197,11 @@ class GraphBuilder:
     
         if training: 
             if init_model == None:
-                self.weight = tf.Variable(tf.zeros([movie_size, dim_atts]))
+                self.weight = tf.Variable(tf.random_uniform([movie_size, dim_atts], -1, 1))
                 self.alpha  = tf.Variable(tf.random_uniform([movie_size, embedding_size], -1, 1))
-                self.rho    = tf.Variable(tf.truncated_normal([movie_size, embedding_size],stddev=1))
+                self.rho    = tf.Variable(tf.random_uniform([movie_size, embedding_size], -1, 1))
                 self.invmu  = tf.Variable(tf.random_uniform([movie_size], -1, 1))
-                self.nbr  = tf.nn.softplus(tf.Variable(tf.random_uniform([movie_size], 1, 2)))
+                self.nbr  = tf.nn.softplus(tf.Variable(tf.random_uniform([movie_size], -1, 1)))
             else:
                 self.alpha  = tf.Variable(init_model['alpha'])
                 self.invmu  = tf.Variable(init_model['invmu'])

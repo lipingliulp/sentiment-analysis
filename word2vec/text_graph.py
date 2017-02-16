@@ -84,19 +84,22 @@ class GraphBuilder:
                 weight_feat = tf.gather(weight_select, self.input_att)
                 logits = logits + weight_feat 
                 #logits = logits + tf.reduce_sum(weight_z * tf.expand_dims(input_att, 0), 1)
-            
             log_nobs_prob = - tf.nn.softplus(logits)
             log_obs_prob = - tf.nn.softplus(- logits) 
-            logprob = self.logsumexp(log_obs_prob + logprob_z, log_nobs_prob)
+
+            if config['use_sideinfo']:
+                logprob = self.logsumexp(log_obs_prob + logprob_z, log_nobs_prob)
+            else:
+                logprob = tf.log(tf.exp(log_obs_prob + logprob_z) + tf.exp(log_nobs_prob))
     
         else:
             logprob = logprob_z
     
         return logprob, sind, []
 
-    def construct_model_graph(self, reviews, config, init_model=None, training=True):
+    def construct_model_graph(self, reviews, reverse_dictionary, config, init_model=None, training=True):
 
-        review_size, voc_size, dim_atts = self.get_problem_sizes(reviews, config)
+        review_size, voc_size, dim_atts = self.get_problem_sizes(reviews, reverse_dictionary, config)
         self.initialize_model(review_size, voc_size, dim_atts, config, init_model, training)
 
         # number pairs in the batch
@@ -121,7 +124,7 @@ class GraphBuilder:
         #    ins_llh = tf.scatter_update(tf.Variable(tf.zeros(voc_size)), ins_ind, ins_logprob)
         #    sum_llh = tf.reduce_sum(llh_nonz) + tf.reduce_sum(llh_zero) 
         #else:
-        sum_llh = sum_llh_nonz + (mean_llh_zero * batch_size * float(voc_size) - sum_llh_fake_zero) / 10000
+        sum_llh = sum_llh_nonz + (mean_llh_zero * batch_size * float(voc_size) - sum_llh_fake_zero) * config['zeroweight'] 
         ins_llh = sum_llh 
         #raise  Exception('Do not use "training" option for text')
     
@@ -184,9 +187,9 @@ class GraphBuilder:
             self.nbr = tf.constant(init_model['nbr'])
  
 
-    def get_problem_sizes(self, reviews, config):
+    def get_problem_sizes(self, reviews, reverse_dictionary, config):
         review_size = len(reviews) 
-        voc_size = 20000 
+        voc_size = len(reverse_dictionary)
         dim_atts = 12
         
         return review_size, voc_size, dim_atts

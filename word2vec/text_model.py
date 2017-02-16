@@ -34,7 +34,7 @@ def calculate_similarity(embeddings, valid_dataset):
 # config = dict(K=K, voc_size=voc_size, use_sideinfo=use_sideinfo, half_window=half_window)
 def fit_emb(reviews, config, init_model, reverse_dictionary):
 
-    use_valid_set = False
+    use_valid_set = True 
     if use_valid_set:
         reviews, valid_reviews = separate_valid(reviews, 0.1)
 
@@ -46,7 +46,7 @@ def fit_emb(reviews, config, init_model, reverse_dictionary):
         tf.set_random_seed(27)
         
         builder = GraphBuilder()
-        inputs, outputs, model_param = builder.construct_model_graph(reviews, config, init_model, training=True)
+        inputs, outputs, model_param = builder.construct_model_graph(reviews, reverse_dictionary, config, init_model, training=True)
         similarity = calculate_similarity(model_param['rho'], tf.constant(check_words)) 
 
         optimizer = tf.train.AdagradOptimizer(1).minimize(outputs['objective'])
@@ -56,7 +56,10 @@ def fit_emb(reviews, config, init_model, reverse_dictionary):
         # We must initialize all variables before we use them.
         init.run()
 
-        loss_logg = np.zeros([config['max_iter'], 2]) 
+        nprint = 10000
+        val_accum = np.array([0.0, 0.0])
+        loss_logg = np.zeros([int(config['max_iter'] / nprint) + 1, 3]) 
+
         review_size = len(reviews)
         for step in xrange(1, config['max_iter'] + 1):
 
@@ -65,33 +68,35 @@ def fit_emb(reviews, config, init_model, reverse_dictionary):
             feed_dict = {inputs['input_att']: preceding_tags, inputs['input_ind']: words, inputs['input_context']: context}
 
             _, llh_val, obj_val, debug_val = session.run((optimizer, outputs['llh'], outputs['objective'], outputs['debugv']), feed_dict=feed_dict)
-            loss_logg[step - 1, :] = np.array([llh_val, obj_val])
-
-            # print loss every 2000 iterations
-            nprint = 10
+            val_accum = val_accum + np.array([llh_val, obj_val])
+            
+            # print loss every nprint iterations
             if step % nprint == 0 or np.isnan(llh_val) or np.isinf(llh_val):
                 
-                valid_msg = ''
+                valid_llh = 0.0
                 if use_valid_set:
-                    llh_sum = 0
-                    valid_size = valid_reviews['scores'].shape[0]
+                    llh_sum = 0.0
+                    valid_size = len(valid_reviews)
                     for iv in xrange(valid_size): 
-                        words, context, preceding_tags = generate_batch(reviews, rind)
+                        words, context, preceding_tags = generate_batch(valid_reviews, iv)
                         feed_dict = {inputs['input_att']: preceding_tags, inputs['input_ind']: words, inputs['input_context']: context}
                         llh_val = session.run((outputs['llh']), feed_dict=feed_dict)
                         llh_sum = llh_sum + llh_val
                     valid_llh = llh_sum / valid_size
-                    valid_msg = ' validation llh is %.3f' % valid_llh
                 
-                avg_val = np.mean(loss_logg[step - nprint : step], axis=0)
-                print("iteration[", step, "]: average llh, obj and debugv are ", avg_val, debug_val, valid_msg)
+                # record the three values 
+                ibatch = int(step / nprint)
+                loss_logg[ibatch, :] = np.append(val_accum / nprint, valid_llh)
+                val_accum[:] = 0.0 # reset the accumulater
+
+                print("iteration[", step, "]: average llh, obj and debugv are ", loss_logg[ibatch, :])
                 
                 if np.isnan(llh_val) or np.isinf(llh_val):
                     #debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
                     print('Loss value is ', llh_val, ', and the debug value is ', debug_val)
                     raise Exception('Bad values')
     
-            if step % 20000 == 0: 
+            if step % 50000 == 0: 
                 print('----------------------------------------------------------------------')
                 sim = similarity.eval()
                 for i in xrange(check_size):
@@ -114,14 +119,14 @@ def fit_emb(reviews, config, init_model, reverse_dictionary):
 
         return model, loss_logg
 
-def evaluate_emb(reviews, model, config):
+def evaluate_emb(reviews, model, config, reverse_dictionary):
 
     graph = tf.Graph()
     with graph.as_default():
         tf.set_random_seed(27)
         # construct model graph
         builder = GraphBuilder()
-        inputs, outputs, model_param = builder.construct_model_graph(reviews, config, model, training=False)
+        inputs, outputs, model_param = builder.construct_model_graph(reviews, reverse_dictionary, config, model, training=False)
         init = tf.initialize_all_variables()
 
     with tf.Session(graph=graph) as session:
@@ -131,6 +136,7 @@ def evaluate_emb(reviews, model, config):
         loss_array = [] 
         pos_loss_array = [] 
         review_size = len(reviews)
+        print('%d documents for testing...')
         for step in xrange(review_size):
             words, context, preceding_tags = generate_batch(reviews, step)
             feed_dict = {inputs['input_att']: preceding_tags, inputs['input_ind']: words, inputs['input_context']: context}

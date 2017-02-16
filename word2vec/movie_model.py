@@ -9,6 +9,9 @@ import collections
 from scipy import sparse
 import sys
 from graph_builder import GraphBuilder
+import warnings
+
+warnings.filterwarnings('error')
 
 def separate_valid(reviews, frac):
     review_size = reviews['scores'].shape[0]
@@ -21,10 +24,24 @@ def separate_valid(reviews, frac):
     return trainset, validset
 
 
-# config = dict(K=K, voc_size=voc_size, use_sideinfo=use_sideinfo, half_window=half_window)
-def fit_emb(reviews, config, init_model):
+def validate(valid_reviews, session, inputs, outputs):
+    valid_size = valid_reviews['scores'].shape[0]
+    ins_llh = np.zeros(valid_size)
+    for iv in xrange(valid_size): 
+        atts, indices, labels = generate_batch(valid_reviews, iv)
+        if indices.size <= 1:
+            raise Exception('in validation set: row %d has only less than 2 non-zero entries' % iv)
+        feed_dict = {inputs['input_att']: atts, inputs['input_ind']: indices, inputs['input_label']: labels}
+        ins_llh[iv] = session.run((outputs['llh']), feed_dict=feed_dict)
+    
+    mv_llh = np.mean(ins_llh)
+    return mv_llh
 
-    use_valid_set = False
+
+def fit_emb(reviews, config, init_model):
+    np.random.seed(27)
+
+    use_valid_set = True 
     if use_valid_set:
         reviews, valid_reviews = separate_valid(reviews, 0.1)
 
@@ -35,48 +52,53 @@ def fit_emb(reviews, config, init_model):
         builder = GraphBuilder()
         inputs, outputs, model_param = builder.construct_model_graph(reviews, config, init_model, training=True)
 
-        optimizer = tf.train.AdagradOptimizer(0.1).minimize(outputs['objective'])
-        init = tf.initialize_all_variables()
+        optimizer = tf.train.AdagradOptimizer(0.05).minimize(outputs['objective'])
+        init = tf.global_variables_initializer()
 
     with tf.Session(graph=graph) as session:
         # We must initialize all variables before we use them.
         init.run()
 
-        loss_logg = np.zeros([config['max_iter'], 2]) 
+        nprint = 5000
+        val_accum = np.array([0.0, 0.0])
+        train_logg = np.zeros([int(config['max_iter'] / nprint) + 1, 3]) 
+
         review_size = reviews['scores'].shape[0]
         for step in xrange(1, config['max_iter'] + 1):
 
             rind = np.random.choice(review_size)
             atts, indices, labels = generate_batch(reviews, rind)
+            if indices.size <= 1: # neglect views with only one entry
+                raise Exception('Row %d of the data has only one non-zero entry.' % rind)
             feed_dict = {inputs['input_att']: atts, inputs['input_ind']: indices, inputs['input_label']: labels}
 
             _, llh_val, obj_val, debug_val = session.run((optimizer, outputs['llh'], outputs['objective'], outputs['debugv']), feed_dict=feed_dict)
-            loss_logg[step - 1, :] = np.array([llh_val, obj_val])
+            val_accum = val_accum + np.array([llh_val, obj_val])
 
-            # print loss every 2000 iterations
-            nprint = 5000
+            # print loss every nprint iterations
             if step % nprint == 0 or np.isnan(llh_val) or np.isinf(llh_val):
                 
-                valid_msg = ''
+                valid_llh = 0.0
+                break_flag = False
                 if use_valid_set:
-                    llh_sum = 0
-                    valid_size = valid_reviews['scores'].shape[0]
-                    for iv in xrange(valid_size): 
-                        atts, indices, labels = generate_batch(valid_reviews, iv)
-                        feed_dict = {inputs['input_att']: atts, inputs['input_ind']: indices, inputs['input_label']: labels}
-                        llh_val = session.run((outputs['llh']), feed_dict=feed_dict)
-                        llh_sum = llh_sum + llh_val
-                    valid_llh = llh_sum / valid_size
-                    valid_msg = ' validation llh is %.3f' % valid_llh
+                    valid_llh = validate(valid_reviews, session, inputs, outputs)
+                    #if ivalid > 0 and valid_llh[ivalid] < valid_llh[ivalid - 1]: # performance becomes worse
+                    #    print('validation llh: ', valid_llh[ivalid - 1], ' vs ', valid_llh[ivalid])
+                    #    break_flag = True
                 
-                avg_val = np.mean(loss_logg[step - nprint : step], axis=0)
-                print("iteration[", step, "]: average llh and obj are ", avg_val, valid_msg)
+                # record the three values 
+                ibatch = int(step / nprint)
+                train_logg[ibatch, :] = np.append(val_accum / nprint, valid_llh)
+                val_accum[:] = 0.0 # reset the accumulater
+                print("iteration[", step, "]: average llh, obj, and valid_llh are ", train_logg[ibatch, :])
                 
                 if np.isnan(llh_val) or np.isinf(llh_val):
-                    #debug_val = session.run(outputs['debugv'], feed_dict=feed_dict)
                     print('Loss value is ', llh_val, ', and the debug value is ', debug_val)
                     raise Exception('Bad values')
-    
+   
+                if break_flag:
+                    break
+
         # save model parameters to dict
         model = dict(alpha=model_param['alpha'].eval(), 
                        rho=model_param['rho'].eval(), 
@@ -84,7 +106,7 @@ def fit_emb(reviews, config, init_model):
                     weight=model_param['weight'].eval(), 
                        nbr=model_param['nbr'].eval())
 
-        return model, loss_logg
+        return model, train_logg
 
 def evaluate_emb(reviews, model, config):
 
@@ -92,27 +114,46 @@ def evaluate_emb(reviews, model, config):
     with graph.as_default():
         tf.set_random_seed(27)
         # construct model graph
+        print('Building graph...')
         builder = GraphBuilder()
         inputs, outputs, model_param = builder.construct_model_graph(reviews, config, model, training=False)
-        init = tf.initialize_all_variables()
+        init = tf.global_variables_initializer()
 
     with tf.Session(graph=graph) as session:
         # We must initialize all variables before we use them.
+        print('Initializing...')
         init.run()
 
-        loss_array = [] 
-        pos_loss_array = [] 
+        llh_array = [] 
+        pos_llh_array = [] 
+        mul_llh_array = [] 
         review_size = reviews['scores'].shape[0]
+        print('Calculating llh of instances...')
         for step in xrange(review_size):
             att, index, label = generate_batch(reviews, step)
+            if index.size <= 1: # neglect views with only one entry
+                continue
             feed_dict = {inputs['input_att']: att, inputs['input_ind']: index, inputs['input_label']: label}
-            ins_llh_val, pos_llh_val = session.run((outputs['ins_llh'], outputs['pos_llh']), feed_dict=feed_dict)
-            loss_array.append(ins_llh_val)
-            pos_loss_array.append(pos_llh_val)
+            ins_llh_val, pos_llh_val, mul_llh_val = session.run((outputs['ins_llh'], outputs['pos_llh'], outputs['mul_llh']), 
+                                                                feed_dict=feed_dict)
+
+            #if step == 0:
+            #    predicts = session.run(outputs['debugv'], feed_dict=feed_dict)
+            #    print('%d movies ' % predicts.shape[0])
+            #    print(predicts)
+
+            llh_array.append(ins_llh_val)
+            pos_llh_array.append(pos_llh_val)
+            mul_llh_array.append(mul_llh_val)
+
         
-        print("Loss and pos_loss mean: ", np.mean(np.concatenate(loss_array)), np.mean(np.concatenate(pos_loss_array)))
+        llh_array = np.concatenate(llh_array, axis=0)
+        pos_llh_array = np.concatenate(pos_llh_array, axis=0)
+        mul_llh_array = np.array(mul_llh_array)
+
+        print("Loss and pos_loss mean: ", np.mean(llh_array), np.mean(pos_llh_array))
         
-        return loss_array, pos_loss_array
+        return llh_array, pos_llh_array, mul_llh_array
 
 def generate_batch(reviews, rind):
     atts = reviews['atts'][rind, :]
